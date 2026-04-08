@@ -16,19 +16,26 @@ EN
 ===============================================================
 AFTER FLASH: EXPECTED BEHAVIOR (CoreS3 UI)
 
-- Display shows title "M5 CoreS3 Chord Suggester".
-- Bottom bar: BACK (left), SELECT (center), FWD (right) for chord list navigation.
-- Short taps on BACK/FWD move selection; SELECT confirms or steps through settings rows.
-- Settings: on the main screen, place two fingers on BACK and FWD at once and hold ~0.8 s.
-- In settings, BACK/FWD move the highlighted row; SELECT changes the value (last row saves and exits).
-- Adjustable: MIDI out channel, MIDI in (OMNI or channel), brightness, output velocity.
-- See README.md for build, tests, and PlatformIO upload.
+1. Boot splash: "Hi! Let's Play" button appears on a blue background.
+2. Tap the button to enter the play surface.
+3. Play surface:
+   - Top center shows the selected key (e.g. "C"). Tap to cycle keys.
+   - 6 chord buttons in a 3x2 grid, color-coded:
+     GREEN = principal chords (IV, V)
+     BLUE  = standard diatonic (ii, iii, vi)
+     RED   = tension / diminished (vii deg)
+   - Tap a chord to "play" it.
+4. After 5 chord taps the key area shows a heart icon.
+   Tap the heart for a surprise chord (modal interchange, etc.).
+5. Settings: place two fingers on the left and right edges and hold ~0.8 s.
+   BACK/FWD = move row, SELECT = change value, last row = Save & exit.
+6. Adjustable: MIDI out channel, MIDI in (OMNI or channel), brightness, velocity.
 
 ===============================================================
 IF SOMETHING FAILS
 
 - Port not found:
-  Try download mode: hold BOOT, press RST, release BOOT; or try another USB port/cable.
+  Try download mode: hold RESET for ~2 s until green LED, or try another cable.
 - Flashing fails:
   Run python flash_firmware.py manually, or use FLASH_INSTRUCTIONS.md.
 - Still blocked:

@@ -12,12 +12,13 @@ This package contains prebuilt images for an **M5Stack CoreS3** (ESP32-S3) runni
 
 ## What to expect after flashing
 
-- Boot UI title: **M5 CoreS3 Chord Suggester**  
-- Bottom soft buttons: **BACK**, **SELECT**, **FWD** (chord navigation)  
-- **Settings**: on the main screen, touch **BACK** and **FWD** together with two fingers and hold about **0.8 s**  
-- In settings, **BACK** / **FWD** move the row; short **SELECT** changes values or saves on the last row  
+1. **Boot splash**: a blue **"Hi! Let's Play"** button appears. Tap it.  
+2. **Play surface**: the selected key is shown top-center (tap to cycle). Six chord buttons in a 3×2 grid are color-coded (green = principal, blue = standard diatonic, red = tension).  
+3. **Heart surprise**: after 5 chord taps the key area becomes a **♥**. Tap it for a surprise chord.  
+4. **Settings**: place two fingers on the left and right screen edges and hold **~0.8 s**.  
+   BACK / FWD move the row; SELECT changes values; last row saves and exits.  
 
-See `README.md` for the full behavior summary.
+See `README.md` and `docs/ORIGINAL_UX_SPEC.md` for the full behavior reference.
 
 ## Requirements
 

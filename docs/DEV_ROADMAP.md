@@ -6,10 +6,10 @@ This roadmap is organized into milestones with concrete TODO checklists.
 
 Goal: lock in project structure, settings flow, and testability baseline.
 
-- [ ] Install GCC toolchain on dev machine and pass `platformio test -e native`
-- [ ] Add tests for settings row navigation and wrap behavior
+- [x] Install GCC toolchain on dev machine and pass `platformio test -e native`
+- [x] Add tests for settings row navigation and wrap behavior
 - [ ] Add tests for dual-corner settings-entry gesture timing logic
-- [ ] Refactor touch handling into smaller functions (`main`, `settings`, `gesture`)
+- [x] Refactor touch handling into smaller functions (`main`, `settings`, `gesture`)
 - [ ] Add a `make`/script helper for `build`, `test`, and `upload`
 - [ ] Add CI build job (at minimum compile CoreS3 firmware on push)
 
@@ -18,7 +18,8 @@ Goal: lock in project structure, settings flow, and testability baseline.
 Goal: support all app-adjustable values from one consistent settings UX.
 
 - [ ] Add transport settings: tempo/BPM, default strum mode, swing/humanize
-- [ ] Add MIDI settings: output channel, input filter, thru mode, transpose
+- [ ] Add MIDI settings per `docs/MIDI_INPUT_SPEC.md`: **independent receive channels** for USB, Bluetooth, and (future) DIN; MIDI clock follow toggle; BPM corner display preferences
+- [ ] Add MIDI settings: output channel, thru mode, transpose (global or per-destination TBD)
 - [ ] Add UI settings: brightness, theme/accent, touch hold thresholds
 - [ ] Add audio settings: default velocity and dynamics response curve
 - [ ] Add factory reset option in settings page
@@ -29,11 +30,12 @@ Goal: support all app-adjustable values from one consistent settings UX.
 
 Goal: move from UI scaffold to full MIDI behavior.
 
-- [ ] Implement MIDI IN parser and active-note tracking
+- [ ] Implement MIDI IN parser and active-note tracking (tagged by transport: USB / BLE / DIN)
 - [ ] Implement chord detection pipeline from incoming notes
 - [ ] Implement suggestion generation model and ranking
 - [ ] Implement MIDI OUT playback with configurable channel/velocity
-- [ ] Implement channel filtering for MIDI IN (OMNI or fixed channel)
+- [ ] Implement **per-transport** channel filtering (see `docs/MIDI_INPUT_SPEC.md`)
+- [ ] Implement **MIDI clock** receive, BPM derivation (24 PPQN), and **discrete corner BPM** with tempo-synchronized flash
 - [ ] Add all-notes-off safety path on mode transitions/errors
 - [ ] Add debug overlay page for incoming/outgoing MIDI diagnostics
 
@@ -41,7 +43,9 @@ Goal: move from UI scaffold to full MIDI behavior.
 
 Goal: complete touch-first UX replacing encoder-era assumptions.
 
-- [ ] Finalize main page layout for CoreS3 aspect ratio and readability
+- [x] Finalize main page layout for CoreS3 aspect ratio and readability
+- [x] Implement boot splash ("Hi! Let's Play") and play surface with key selector + 6-chord grid
+- [x] Implement heart / surprise chord mechanic after N plays
 - [ ] Add explicit pages for history/diatonic/functional/related/chromatic
 - [ ] Implement fast page cycling via BACK/FWD long-press
 - [ ] Add confirmation prompts for destructive actions
