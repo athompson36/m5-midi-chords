@@ -1,0 +1,66 @@
+QUICK START
+===============================================================
+
+DE
+1. Python installieren: https://www.python.org/downloads/
+2. CrowPanel per USB-C Datenkabel verbinden.
+3. Windows: flash_firmware.bat doppelklicken.
+4. macOS/Linux: python3 flash_firmware.py ausfuehren.
+
+EN
+1. Install Python 3: https://www.python.org/downloads/
+2. Connect CrowPanel with a USB-C data cable.
+3. Windows: double-click flash_firmware.bat.
+4. macOS/Linux: run python3 flash_firmware.py.
+
+===============================================================
+
+AFTER FLASH: EXPECTED BEHAVIOR
+
+- Display starts with "Hi! Let's play".
+- First tap on center circle seeds C major harmony.
+- After that, center circle toggles passing-chord mode on/off.
+- Suggested chords follow the strumming feel learned from your playing.
+- Repeated suggested chords alternate between down- and up-strum playback.
+- Holding the mechanical display button for 3 seconds resets to "Hi! Let's play".
+- That reset clears chord history and key estimation.
+- Selecting a chord on "Related Keys" page instantly changes to that chord's key (then goes to Diatonic page).
+- Tapping chords on "Chord History" page plays them WITHOUT modifying history.
+- History only updates from MIDI input or tapping chords on other suggestion pages.
+- History sequencer: tap center button to Play/Stop (8-chord sequence).
+- Sequencer timing: 4 beats per chord (whole-note chords), BPM shown in center.
+- BPM edit: On the sequencer page, push the mechanical screen button down and turn the ring (slow = +/-1, fast = +/-5).
+- Sequencer LEDs run clockwise: yellow on chord changes, violet between changes.
+- Generated chord pitch follows the user MIDI keyboard register dynamically.
+- BLE MIDI is available after boot for wireless MIDI connections.
+- Suggestion circles trigger suggested chords.
+- In passing mode, tapping a suggestion triggers a passing chord first.
+- Passing chords from touch sustain until another chord is selected.
+- Keyboard note-off is still respected for keyboard-driven flow.
+
+===============================================================
+
+IF SOMETHING FAILS
+
+- Port not found:
+  Boot mode: hold Boot, press Power, release Boot.
+- Flashing fails:
+  Run python flash_firmware.py manually.
+- BLE MIDI not visible:
+  Reboot the CrowPanel and reconnect from your BLE MIDI host app.
+- Still blocked:
+  Open FLASH_INSTRUCTIONS.md for full steps.
+
+===============================================================
+
+FILES
+
+- firmware.bin
+- bootloader.bin
+- partitions.bin
+- flash_firmware.py
+- flash_firmware.bat
+- FLASH_INSTRUCTIONS.md
+- README.md
+- BUILD_INFO.md
+- QUICKSTART.txt
