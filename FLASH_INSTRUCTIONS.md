@@ -1,179 +1,116 @@
-# CrowPanel 1.28" ESP32S3 Chord Suggester Firmware
+# M5Stack CoreS3 — chord firmware (prebuilt images)
 
-**Firmware Version: 2026-04-08**
+**Firmware bundle date: 2026-04-08**
 
-This package contains the precompiled firmware for the CrowPanel 1.28" Rotary Display with ESP32S3 for the interactive MIDI chord suggestion system.
+This package contains prebuilt images for an **M5Stack CoreS3** (ESP32-S3) running the chord-suggester firmware built with PlatformIO (`m5stack-cores3` environment).
 
-## Firmware Components
+## Contents
 
-- **bootloader.bin** - ESP32S3 bootloader (15 KB)
-- **partitions.bin** - partition table (3 KB)
-- **firmware.bin** - main application (1028.5 KiB)
+- **bootloader.bin** — ESP32-S3 second-stage bootloader  
+- **partitions.bin** — partition table  
+- **firmware.bin** — application image  
 
-## Hardware Features
+## What to expect after flashing
 
-- Rotary ring menu with 5 pages (diatonic, functional, related keys, chromatic, history)
-- WS2812B RGB LEDs (5 units, pin 48) - each page has its own color
-- Suggested chord playback mirrors learned user strumming timing and alternates strum direction
-- BLE MIDI peripheral output for wireless MIDI clients
-- USB MIDI device output over the CrowPanel USB-C port
-- MIDI input/output (DIN MIDI at 31250 baud)
-- Capacitive touchscreen (CST816D)
-- Real-time chord detection
+- Boot UI title: **M5 CoreS3 Chord Suggester**  
+- Bottom soft buttons: **BACK**, **SELECT**, **FWD** (chord navigation)  
+- **Settings**: on the main screen, touch **BACK** and **FWD** together with two fingers and hold about **0.8 s**  
+- In settings, **BACK** / **FWD** move the row; short **SELECT** changes values or saves on the last row  
 
-## Installation
+See `README.md` for the full behavior summary.
 
-PRESS AND HOLD BOOT AND RESET, then let go.
+## Requirements
 
-### Option 1: Simple Python Script (recommended)
+- Python 3.8+ recommended  
+- USB cable with data lines (not charge-only)  
+- [esptool](https://github.com/espressif/esptool) (`pip install esptool`)  
 
-**Requirements:**
-- Python 3.6+ installed
-- USB-C cable connected to the CrowPanel
-- Press the boot button, then power on (or keep boot pressed until upload starts)
+## Option 1 — Python flasher (recommended)
 
-**Step 1: Install esptool**
-```bash
-pip install esptool
-```
+From the folder that contains `flash_firmware.py` and the three `.bin` files:
 
-**Step 2: Flash firmware**
+**Windows**
 
-**Windows:**
 ```bash
 python flash_firmware.py
 ```
 
-**Mac/Linux:**
+Or double-click `flash_firmware.bat` (runs the same script).
+
+**macOS / Linux**
+
 ```bash
 python3 flash_firmware.py
 ```
 
-The script automatically detects the serial port and flashes all components in the correct order.
+The script picks a serial port when possible and flashes at `0x0`, `0x8000`, and `0x10000`.
 
----
+## Option 2 — Manual `esptool` command
 
-### Option 2: Manual Flashing with esptool.py
+Replace the port with your system’s serial device (for example `COM5` on Windows or `/dev/ttyACM0` on Linux).
 
-If the script does not work, run the command directly:
+**Windows (PowerShell / CMD)**
 
-**Windows (CMD):**
-```cmd
-esptool.py --port COM3 --baud 921600 --before default_reset --after hard_reset write_flash ^
-  0x0 bootloader.bin ^
-  0x8000 partitions.bin ^
-  0x10000 firmware.bin
+```text
+python -m esptool --port COM5 --baud 921600 --before default_reset --after hard_reset write_flash 0x0 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
 ```
 
-**Mac/Linux (Bash):**
+**macOS / Linux**
+
 ```bash
-esptool.py --port /dev/ttyUSB0 --baud 921600 --before default_reset --after hard_reset write_flash \
-  0x0 bootloader.bin \
-  0x8000 partitions.bin \
-  0x10000 firmware.bin
+python3 -m esptool --port /dev/ttyACM0 --baud 921600 --before default_reset --after hard_reset write_flash \
+  0x0 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
 ```
 
-**Find port numbers:**
-- Windows: `esptool.py list-ports` or check Device Manager
-- Mac: `ls /dev/tty.usbserial*`
-- Linux: `ls /dev/ttyUSB*` or `dmesg | tail`
+If uploads time out, retry with `--baud 115200`.
 
----
+### Finding the serial port
 
-### Option 3: Arduino IDE (if available)
+- Windows: Device Manager → Ports (COM & LPT), or `python -m esptool list-ports`  
+- macOS: `ls /dev/cu.usbmodem*` or `ls /dev/cu.usbserial*`  
+- Linux: `ls /dev/ttyACM*` / `ls /dev/ttyUSB*`  
 
-1. Start Arduino IDE
-2. Tools -> Flash Size: **16MB (128Mb)**
-3. Tools -> Partition Scheme: **Huge APP (3MB No OTA/1MB SPIFFS)**
-4. Tools -> PSRAM: **OPI PSRAM**
-5. Tools -> Port: CrowPanel USB port
-6. Sketch -> Upload
+## Download / bootloader mode (if the port does not appear)
 
-> Use the `.elf` file (Sketch -> Export compiled Binary)
+On CoreS3, if the board does not enumerate for flashing:
 
----
+1. Connect USB-C to the CoreS3.  
+2. Hold **BOOT** (download).  
+3. Press **RST** once, then release **BOOT** after a short moment.  
+
+Exact button labels match the silkscreen on your unit; some revisions use **RESET** instead of **RST**.
+
+## Option 3 — Build and upload from source
+
+If you have the full repository:
+
+```bash
+pip install platformio
+python -m platformio run -e m5stack-cores3 --target upload
+```
+
+This uses PlatformIO’s upload path and does not require copying `.bin` files by hand.
 
 ## Troubleshooting
 
-### Problem: "Port not found" / No connection
+**Port not found**
 
-- Check the USB-C cable (data + power)
-- Restart the CrowPanel in boot mode:
-  1. Hold the **boot button**
-  2. Press the power button (or unplug and reconnect)
-  3. Release the boot button
-  4. The LED indicator should glow dimly (download mode)
-- Windows driver: [CH34x USB Driver](https://github.com/Elecrow-RD/CrowPanel-1.28inch-HMI-ESP32-Rotary-Display-240-240-IPS-Round-Touch-Knob-Screen/blob/master/driver)
+- Try another USB port and a known-good data cable.  
+- Enter download mode (see above).  
+- On Windows, install the USB serial driver your machine reports for the device (ESP32-S3 often appears as a USB CDC/serial device).  
 
-### Problem: "Baud rate error" / Timing issue
+**Flash errors or bad boot after flash**
 
-- Reduce baud to 115200 (if 921600 times out):
-  ```bash
-  esptool.py --port COM3 --baud 115200 write_flash ...
-  ```
-
-### Problem: Firmware flashed, but device does not start
-
-- Erase flash memory completely:
-  ```bash
-  esptool.py --port COM3 erase_flash
-  ```
-  Then flash again.
-
-### Problem: MIDI does not work
-
-- Check pins: RX=44, TX=43 (see `platformio.ini`)
-- Check DIN MIDI cable and device routing
-- Open Serial Monitor (115200 baud) for diagnostics
-
-### Problem: BLE MIDI does not work
-
-- Enable Bluetooth on your host device and search for the CrowPanel BLE MIDI device again
-- Ensure no other app is already connected to the BLE MIDI endpoint
-- Reboot the CrowPanel and retry pairing/connection
-
----
-
-## LED Colors per Menu Page
-
-When rotating the ring, you will see:
-
-| Page | Color | RGB |
-|------|-------|-----|
-| **Chord History** | Orange | `255, 120, 20` |
-| **Diatonic** | Green | `0, 200, 80` |
-| **Functional** | Blue | `0, 120, 255` |
-| **Related Keys** | Magenta | `220, 60, 180` |
-| **Chromatic/Altered** | Red | `255, 40, 40` |
-
----
-
-## Source Code and Modification
-
-The original project is available on GitHub:
-[miditest PlatformIO Project](https://github.com/username/miditest) *(adjust as needed)*
-
-To build it yourself:
 ```bash
-git clone <repo>
-cd miditest
-pip install platformio
-pio run -e crowpanel_esp32s3
-pio run -e crowpanel_esp32s3 --target upload
+python -m esptool --port YOUR_PORT erase_flash
 ```
 
-**Dependencies:**
-- LovyanGFX 1.2.7+
-- Adafruit_NeoPixel 1.12.3+
-- MIDI Library 5.0.2+
+Then flash the three images again.
 
----
+**Wrong or stale binaries**
 
-## Support and Questions
+- Rebuild with `python -m platformio run -e m5stack-cores3` and copy fresh files from `.pio/build/m5stack-cores3/`, or compare sizes/MD5 with `BUILD_INFO.md`.
 
-- **Elecrow CrowPanel Wiki**: https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display_Arduino_lesson1.html
-- **esptool.py Documentation**: https://github.com/espressif/esptool
+## Source
 
----
-
-**Enjoy your chord suggester firmware.**
+Clone this repository and use the `m5stack-cores3` environment in `platformio.ini`. Dependencies are pulled automatically by PlatformIO (`M5Unified`, etc.).

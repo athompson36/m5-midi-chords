@@ -4,7 +4,7 @@ This project is a clean PlatformIO firmware rebuild targeting `M5Stack CoreS3`.
 
 Current behavior:
 
-- CoreS3 display UI with adaptive width/height (not tied to CrowPanel round layout).
+- CoreS3 display UI with adaptive width/height (rectangular layout, not a round rotary HMI).
 - Bottom soft-touch controls:
   - left: `BACK` (previous chord in the list)
   - center: `SELECT`

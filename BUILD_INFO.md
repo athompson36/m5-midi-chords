@@ -1,103 +1,79 @@
 # Build Information
 
-Firmware Build Date: April 8, 2026  
-Target Board: esp32-s3-devkitc-1 (CrowPanel variant)  
-Platform: espressif32 v5.3.0  
-Framework: Arduino
+Firmware build date: April 8, 2026  
+Target: **M5Stack CoreS3** (ESP32-S3, 16 MB flash)  
+Platform: `espressif32` v6.7.0  
+Framework: Arduino (ESP32 Arduino core via PlatformIO)
 
-## Build Configuration
+## Build configuration
+
+Excerpt from `platformio.ini` (environment `m5stack-cores3`):
 
 ```ini
-[env:crowpanel_esp32s3]
-platform = espressif32@~5.3.0
-board = esp32-s3-devkitc-1
+[env:m5stack-cores3]
+platform = espressif32@~6.7.0
+board = m5stack-cores3
 framework = arduino
-
-upload_speed = 921600
 monitor_speed = 115200
-
+board_build.variants_dir = variants
+board_build.variant = m5stack_cores3
+platform_packages =
+  platformio/framework-arduinoespressif32@~3.20016.0
 build_flags =
-  -DARDUINO_USB_MODE=0
-  -DARDUINO_USB_CDC_ON_BOOT=0
-  -DMIDI_UART_RX_PIN=44
-  -DMIDI_UART_TX_PIN=43
-  -DCONFIG_TINYUSB_MIDI_ENABLED=1
-
+  -DARDUINO_USB_MODE=1
+  -DARDUINO_USB_CDC_ON_BOOT=1
 lib_deps =
-    lovyan03/LovyanGFX@^1.2.7
-    adafruit/Adafruit NeoPixel@^1.12.3
-    fortyseveneffects/MIDI Library@^5.0.2
-  lathoub/BLE-MIDI@^2.2
+  m5stack/M5Unified@^0.1.15
 ```
 
-## Binary Artifacts
+## Binary artifacts
 
-| File | Size (bytes) | Size (human) | Flash Offset |
-|------|--------------|--------------|--------------|
-| bootloader.bin | 14,768 | 14.4 KiB | 0x0 |
-| partitions.bin | 3,072 | 3.0 KiB | 0x8000 |
-| firmware.bin | 1,053,152 | 1028.5 KiB | 0x10000 |
+These offsets are standard for this board profile. The same files are produced under `.pio/build/m5stack-cores3/` after a successful build.
 
-## MD5 Checksums
+| File             | Size (bytes) | Size (human) | Flash offset |
+|------------------|-------------:|--------------|--------------|
+| bootloader.bin   | 15,104       | 14.8 KiB     | 0x0          |
+| partitions.bin   | 3,072        | 3.0 KiB      | 0x8000       |
+| firmware.bin     | 422,400      | 412.5 KiB    | 0x10000      |
 
-| File | MD5 |
-|------|-----|
-| bootloader.bin | d02f12d259aba791a0294bf5329afc3a |
-| partitions.bin | 801ba71678a964614657a6d8fbc6baca |
-| firmware.bin | 06f8753eeba87c2f381c217a7871ef6a |
+## MD5 checksums
 
-## Notable Firmware Changes In This Distribution
+Computed from the build synced to the repository root on 2026-04-08 (also matches `.pio/build/m5stack-cores3/` after `platformio run -e m5stack-cores3`).
 
-- Suggested chord playback now learns strum timing from incoming played chords.
-- Suggested chord playback alternates downstroke/upstroke direction between triggers for a more natural response.
-- Emotional chord suggestion replaced with a weighted candidate approach:
-- Key detection from recent chord history (last 3 chords)
-- Borrowed candidates: bVI, bVII, iv, ii dim
-- Functional candidates: V/V, Vsus, V7 flavor, IVadd9, ii7
-- Combined score: bass motion + harmonic function + voicing proximity
-- Voicing proximity now explicitly favors close movement from previous chord
-- Emotional scoring parameters are now constants in src/main.cpp for easier tuning
-- Passing-chord and touch UX improvements:
-- Running suggestion is stopped before new passing chord starts
-- Center circle now toggles passing mode on/off
-- First center tap in welcome state seeds C major harmony
-- Mechanical display button long-press improvements:
-- Holding the encoder switch for 3 seconds resets the session to "Hi! Let's play"
-- Chord history is cleared and key estimation is reset to `--`
-- Related Keys page now supports instant key changes:
-  - Selecting a chord on "Related Keys" page automatically changes to that chord's native key
-  - Suggests diatonic chords for the new key immediately after key change
-  - Returns to "Diatonic" page after key change for seamless transitions
-- Chord History page now preserves state:
-  - Tapping chords on the "Chord History" page plays them without modifying the history
-  - History is only updated by MIDI keyboard input or tapping chords on other pages
-  - Allows safe browsing and replaying past chords on the history page
-- History page sequencer updates:
-  - 8 history chords are shown and can be sequenced in order
-  - Play/Stop transport in center circle with BPM display and encoder-based BPM edit
-  - LED clock animation: yellow on chord change, violet between changes
-  - One chord now spans 4 beats (whole-note behavior)
-- Generated chord register now follows the user MIDI keyboard register dynamically
-- USB MIDI device output is now exposed over the CrowPanel USB-C connection
-- BLE MIDI peripheral output is available for wireless hosts
-- MIDI DIN I/O on Serial1 at 31250 baud
-- Suggestion playback channel: 0
-- Held-note analysis cap: 12 notes
-- Triple-tap touch sends all-notes-off
+| File           | MD5                              |
+|----------------|----------------------------------|
+| bootloader.bin | `56375b35ec88d866bcaf826644b86231` |
+| partitions.bin | `118cbdbfce82eb12bbdeb7c59af2fce8` |
+| firmware.bin   | `c8009b407fa4aa989a452d4cf0965a4c` |
+
+## Memory usage (reference)
+
+From the same build:
+
+- RAM: about 6.6% (21,592 / 327,680 bytes)
+- Flash: about 6.4% (422,037 / 6,553,600 bytes program storage)
 
 ## Rebuild
 
 ```bash
 pip install platformio
-platformio run -e crowpanel_esp32s3
-platformio run -e crowpanel_esp32s3 --target upload
+python -m platformio run -e m5stack-cores3
+python -m platformio run -e m5stack-cores3 --target upload
 ```
+
+To refresh the prebuilt copies in the project root (for `flash_firmware.py` / `flash_firmware.bat`):
+
+```bash
+# After a successful build, from the project root:
+cp .pio/build/m5stack-cores3/bootloader.bin .
+cp .pio/build/m5stack-cores3/partitions.bin .
+cp .pio/build/m5stack-cores3/firmware.bin .
+```
+
+Then recompute and update the MD5 table in this file if you publish a release.
 
 ## References
 
-- ESP32-S3 resources: https://www.espressif.com/en/products/socs/esp32-s3/resources
-- CrowPanel wiki: https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display_Arduino_lesson1.html
-
----
-
-Build info generated: April 8, 2026
+- [M5Stack CoreS3 docs](https://docs.m5stack.com/en/core/CoreS3)
+- [PlatformIO board: m5stack-cores3](https://docs.platformio.org/en/latest/boards/espressif32/m5stack-cores3.html)
+- [esptool](https://github.com/espressif/esptool)

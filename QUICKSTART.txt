@@ -3,56 +3,38 @@ QUICK START
 
 DE
 1. Python installieren: https://www.python.org/downloads/
-2. CrowPanel per USB-C Datenkabel verbinden.
+2. M5Stack CoreS3 per USB-C Datenkabel verbinden (Datenleitung, nicht nur Laden).
 3. Windows: flash_firmware.bat doppelklicken.
 4. macOS/Linux: python3 flash_firmware.py ausfuehren.
 
 EN
 1. Install Python 3: https://www.python.org/downloads/
-2. Connect CrowPanel with a USB-C data cable.
+2. Connect M5Stack CoreS3 with a USB-C cable that supports data.
 3. Windows: double-click flash_firmware.bat.
 4. macOS/Linux: run python3 flash_firmware.py.
 
 ===============================================================
+AFTER FLASH: EXPECTED BEHAVIOR (CoreS3 UI)
 
-AFTER FLASH: EXPECTED BEHAVIOR
-
-- Display starts with "Hi! Let's play".
-- First tap on center circle seeds C major harmony.
-- After that, center circle toggles passing-chord mode on/off.
-- Suggested chords follow the strumming feel learned from your playing.
-- Repeated suggested chords alternate between down- and up-strum playback.
-- Holding the mechanical display button for 3 seconds resets to "Hi! Let's play".
-- That reset clears chord history and key estimation.
-- Selecting a chord on "Related Keys" page instantly changes to that chord's key (then goes to Diatonic page).
-- Tapping chords on "Chord History" page plays them WITHOUT modifying history.
-- History only updates from MIDI input or tapping chords on other suggestion pages.
-- History sequencer: tap center button to Play/Stop (8-chord sequence).
-- Sequencer timing: 4 beats per chord (whole-note chords), BPM shown in center.
-- BPM edit: On the sequencer page, push the mechanical screen button down and turn the ring (slow = +/-1, fast = +/-5).
-- Sequencer LEDs run clockwise: yellow on chord changes, violet between changes.
-- Generated chord pitch follows the user MIDI keyboard register dynamically.
-- BLE MIDI is available after boot for wireless MIDI connections.
-- Suggestion circles trigger suggested chords.
-- In passing mode, tapping a suggestion triggers a passing chord first.
-- Passing chords from touch sustain until another chord is selected.
-- Keyboard note-off is still respected for keyboard-driven flow.
+- Display shows title "M5 CoreS3 Chord Suggester".
+- Bottom bar: BACK (left), SELECT (center), FWD (right) for chord list navigation.
+- Short taps on BACK/FWD move selection; SELECT confirms or steps through settings rows.
+- Settings: on the main screen, place two fingers on BACK and FWD at once and hold ~0.8 s.
+- In settings, BACK/FWD move the highlighted row; SELECT changes the value (last row saves and exits).
+- Adjustable: MIDI out channel, MIDI in (OMNI or channel), brightness, output velocity.
+- See README.md for build, tests, and PlatformIO upload.
 
 ===============================================================
-
 IF SOMETHING FAILS
 
 - Port not found:
-  Boot mode: hold Boot, press Power, release Boot.
+  Try download mode: hold BOOT, press RST, release BOOT; or try another USB port/cable.
 - Flashing fails:
-  Run python flash_firmware.py manually.
-- BLE MIDI not visible:
-  Reboot the CrowPanel and reconnect from your BLE MIDI host app.
+  Run python flash_firmware.py manually, or use FLASH_INSTRUCTIONS.md.
 - Still blocked:
   Open FLASH_INSTRUCTIONS.md for full steps.
 
 ===============================================================
-
 FILES
 
 - firmware.bin

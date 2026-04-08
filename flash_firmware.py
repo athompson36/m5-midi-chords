@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-CrowPanel 1.28" Firmware Flasher
-Automatically detects ESP32S3 and flashes all necessary components.
+M5Stack CoreS3 firmware flasher (ESP32-S3).
+Flashes bootloader, partition table, and application from this directory.
 """
 
 import subprocess
@@ -157,7 +157,7 @@ def erase_flash(port):
 
 def main():
     print("=" * 60)
-    print("🎵 CrowPanel Chord Suggester - Firmware Flasher")
+    print("🎵 M5 CoreS3 Chord Suggester - Firmware Flasher")
     print("=" * 60)
     
     # Check esptool availability
@@ -180,8 +180,8 @@ def main():
     if not port:
         print("\n💡 Can't auto-detect? Check:")
         print("   • USB cable is connected (DATA pins, not just power!)")
-        print("   • Press Boot button, then hold Power for 1 sec (enters download mode)")
-        print("   • Windows: Install CH34x driver")
+        print("   • Download mode: hold BOOT, press RST, release BOOT")
+        print("   • Windows: install the USB serial driver Windows offers for the device")
         print("\n📋 Available ports:")
         print(list_ports())
         port = input("📌 Enter port manually: ").strip()
@@ -204,11 +204,10 @@ def main():
         print("\n" + "=" * 60)
         print("✅ Firmware flashed successfully!")
         print("=" * 60)
-        print("\n🎉 The CrowPanel should now boot with:")
-        print("   • Diatonic (Green) chord suggestions by default")
-        print("   • Rotate ring to change pages & see LED colors")
-        print("   • Touch screen to trigger chords")
-        print("   • MIDI output on Pin 43 (TX)")
+        print("\n🎉 The CoreS3 should now boot with:")
+        print("   • Title: M5 CoreS3 Chord Suggester")
+        print("   • BACK / SELECT / FWD touch bar for chord navigation")
+        print("   • Two-finger hold on BACK+FWD (~0.8s) to open settings")
         time.sleep(2)
         return 0
     else:
@@ -221,7 +220,7 @@ def main():
         print("❌ Firmware flash failed")
         print("=" * 60)
         print("\n🔧 Troubleshooting:")
-        print("   • Hold Boot button, then press Power to enter download mode")
+        print("   • Hold BOOT, press RST, release BOOT to enter download mode")
         print("   • Check USB cable (data pins)")
         print("   • Try different baud rate: --baud 115200")
         print("   • Manual flash: see FLASH_INSTRUCTIONS.md")

@@ -1,14 +1,14 @@
 @echo off
-REM CrowPanel Firmware Flasher (Windows Batch)
+REM M5Stack CoreS3 firmware flasher (Windows batch)
 REM Requires: Python 3.x with esptool installed
 
 setlocal enabledelayedexpansion
 
-title CrowPanel Firmware Flasher
+title M5 CoreS3 Firmware Flasher
 
 echo.
 echo ============================================================
-echo  CrowPanel 1.28" Chord Suggester - Firmware Installer
+echo  M5Stack CoreS3 Chord Suggester - Firmware Installer
 echo ============================================================
 echo.
 
@@ -25,7 +25,7 @@ if errorlevel 1 (
 REM Check esptool
 python -m esptool version >nul 2>&1
 if errorlevel 1 (
-    echo Installer esptool.py...
+    echo Installing esptool...
     python -m pip install esptool
     if errorlevel 1 (
         echo Error: Could not install esptool!
