@@ -1,19 +1,26 @@
 # Convenience targets (PlatformIO is the source of truth; see platformio.ini).
+# Prefer project venv when present: python3 -m venv .venv && pip install -r requirements.txt
+ifeq ($(wildcard .venv/bin/pio),)
+  PIO = pio
+else
+  PIO = .venv/bin/pio
+endif
+
 .PHONY: build test native upload monitor clean
 
 build:
-	pio run -e m5stack-cores3
+	$(PIO) run -e m5stack-cores3
 
 native:
-	pio test -e native
+	$(PIO) test -e native
 
 test: native build
 
 upload:
-	pio run -e m5stack-cores3 -t upload
+	$(PIO) run -e m5stack-cores3 -t upload
 
 monitor:
-	pio device monitor -b 115200
+	$(PIO) device monitor -b 115200
 
 clean:
-	pio run -t clean
+	$(PIO) run -t clean

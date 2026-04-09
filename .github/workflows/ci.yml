@@ -25,8 +25,8 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
 
-      - name: Install PlatformIO
-        run: pip install platformio
+      - name: Install Python tools
+        run: pip install -r requirements.txt
 
       - name: Native unit tests
         run: python3 -m platformio test -e native
