@@ -51,8 +51,12 @@ void usbMidiInit() {
   }
 #if CONFIG_TINYUSB_ENABLED && CONFIG_TINYUSB_MIDI_ENABLED
   g_usbReady = g_usbMidiIfaceEnabled;
+  Serial.printf("[USB-MIDI] TinyUSB path: epOut=%u epIn=%u ifaceEnabled=%d usbReady=%d\n",
+                (unsigned)g_usbMidiEpOut, (unsigned)g_usbMidiEpIn,
+                (int)g_usbMidiIfaceEnabled, (int)g_usbReady);
 #else
   g_usbReady = true;
+  Serial.println("[USB-MIDI] Fallback serial path (TinyUSB MIDI not enabled at compile time)");
 #endif
 #else
   g_usbReady = false;

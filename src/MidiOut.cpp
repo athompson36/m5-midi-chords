@@ -46,7 +46,9 @@ uint32_t s_txCcTotal = 0;
 void silenceTracked(uint8_t ch) {
   const uint8_t c = ch & 0x0F;
   for (uint8_t i = 0; i < s_lastCount[c]; ++i) {
-    write3(static_cast<uint8_t>(0x80 | c), s_lastNotes[c][i], 0);
+    const uint8_t note = static_cast<uint8_t>(s_lastNotes[c][i] & 0x7F);
+    // Use NoteOn velocity=0 as release form for broad BLE synth compatibility.
+    write3(static_cast<uint8_t>(0x90 | c), note, 0);
   }
   s_lastCount[c] = 0;
 }

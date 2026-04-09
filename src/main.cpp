@@ -6568,6 +6568,7 @@ static void transportSendTickIfNeeded(uint32_t nowMs) {
     s_transportTxNextClockMs = nowMs;
   }
   if (playing && !s_transportTxPrevPlaying) {
+    seqArpStopAll(true);
     // Start from step-zero, Continue otherwise.
     const uint8_t st = (transportPlayhead() == 0) ? 0xFAU : 0xFBU;
     midiRouteWriteRealtime(route, st);
@@ -6701,6 +6702,7 @@ void loop() {
       s_prevAudible = au;
       transportEmitSequencerStepMidi(au);
       seqArpProcessDue(now);
+      bleMidiFlush();
       const uint8_t flashDiv = g_settings.clkFlashEdge ? 2U : 4U;
       if (transportExternalClockActive() && (au % flashDiv) == 0U) {
         s_playClockFlashUntilMs = now + 90;
@@ -6716,6 +6718,13 @@ void loop() {
       }
     }
   } else {
+    if (s_prevAudible != 255) {
+      seqArpStopAll(true);
+      for (uint8_t ch = 0; ch < 16; ++ch) {
+        midiSilenceLastChord(ch);
+      }
+      bleMidiFlush();
+    }
     s_prevAudible = 255;
     s_playClockFlashUntilMs = 0;
     seqArpStopAll(false);

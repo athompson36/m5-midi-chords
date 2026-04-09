@@ -27,9 +27,6 @@ constexpr const char* kMidiServiceUuid = "03B80E5A-EDE8-4B33-A751-6CE34EC4C700";
 constexpr const char* kMidiCharUuid = "7772E5DB-3868-4112-A1A9-F2669D106BF3";
 constexpr const char* kDeviceName = "M5Chord MIDI";
 
-// ── TX staging buffer ──────────────────────────────────────────────
-// All outgoing MIDI bytes are appended here by bleMidiWrite() and
-// flushed as efficiently-packed BLE-MIDI packets by bleMidiFlush().
 constexpr size_t kBleTxStageCap = 256;
 uint8_t g_bleTxStage[kBleTxStageCap];
 size_t g_bleTxStageLen = 0;
@@ -166,7 +163,6 @@ class BleMidiServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     (void)pServer;
     g_bleConnected = true;
-    // Request comfortable connection parameters: 15-30ms interval, 0 latency, 4s timeout.
     if (g_bleServer) {
       g_bleServer->updateConnParams(connInfo.getConnHandle(), 12, 24, 0, 400);
     }
@@ -184,6 +180,11 @@ class BleMidiServerCallbacks : public NimBLEServerCallbacks {
 BleMidiCharCallbacks g_charCallbacks;
 BleMidiServerCallbacks g_serverCallbacks;
 bool g_bleInitDone = false;
+
+static void sendBlePacket(const uint8_t* buf, size_t len) {
+  if (len <= 1 || !g_bleMidiChar) return;
+  g_bleMidiChar->notify(buf, len);
+}
 
 }  // namespace
 
@@ -213,13 +214,38 @@ void bleMidiPoll() {}
 
 size_t bleMidiWrite(const uint8_t* bytes, size_t len) {
   if (!bytes || len == 0) return 0;
-  const size_t room = kBleTxStageCap - g_bleTxStageLen;
-  const size_t copy = (len < room) ? len : room;
-  memcpy(g_bleTxStage + g_bleTxStageLen, bytes, copy);
-  g_bleTxStageLen += copy;
-  return copy;
+  size_t wrote = 0;
+  while (wrote < len) {
+    size_t room = kBleTxStageCap - g_bleTxStageLen;
+    if (room == 0) {
+      bleMidiFlush();
+      room = kBleTxStageCap - g_bleTxStageLen;
+      if (room == 0) break;
+    }
+    const size_t chunk = ((len - wrote) < room) ? (len - wrote) : room;
+    memcpy(g_bleTxStage + g_bleTxStageLen, bytes + wrote, chunk);
+    g_bleTxStageLen += chunk;
+    wrote += chunk;
+  }
+  return wrote;
 }
 
+// ─── BLE-MIDI TX flush ─────────────────────────────────────────────
+//
+// BLE-MIDI packet wire format (per Apple/MMA spec):
+//
+//   Byte 0:  Header        — 0b1_0TTTTTT  (bit7=1, bit6=0, bits5-0 = timestamp high 6)
+//   Byte 1+: Per-message   — 0b1_TTTTTTT  (timestamp low 7 bits, bit7=1)
+//                             [status] [data0] [data1]
+//
+// The Header byte appears ONCE at the start of each BLE characteristic
+// value write (packet).  Every MIDI message within that packet carries
+// only the timestamp-low byte before the status byte.
+//
+// Previous versions of this function incorrectly placed a header byte
+// before every message, which corrupted multi-message packets and caused
+// receivers to misparse NoteOff events → stuck notes.
+//
 void bleMidiFlush() {
   if (g_bleTxStageLen == 0 || !g_bleInitDone || !g_bleMidiChar || !g_bleConnected) {
     g_bleTxStageLen = 0;
@@ -230,14 +256,13 @@ void bleMidiFlush() {
   const size_t len = g_bleTxStageLen;
   g_bleTxStageLen = 0;
 
-  uint8_t pkt[20];
-  size_t p = 0;
-  size_t consumed = 0;
-  uint8_t runningStatus = 0;
-
   const uint16_t t = static_cast<uint16_t>(millis() & 0x1FFF);
   const uint8_t th = static_cast<uint8_t>(0x80U | ((t >> 7) & 0x3FU));
   const uint8_t tl = static_cast<uint8_t>(0x80U | (t & 0x7FU));
+
+  uint8_t pkt[20];
+  size_t p = 0;
+  size_t consumed = 0;
 
   pkt[p++] = th;
 
@@ -255,49 +280,30 @@ void bleMidiFlush() {
     } else if (b0 & 0x80U) {
       status = b0;
       need = midiDataByteCount(status);
-      if (status < 0xF0U) {
-        runningStatus = status;
-      } else {
-        runningStatus = 0;
-      }
       if (consumed + 1U + need > len) break;
       if (need >= 1) data0 = static_cast<uint8_t>(bytes[consumed + 1] & 0x7F);
       if (need >= 2) data1 = static_cast<uint8_t>(bytes[consumed + 2] & 0x7F);
       consumed += static_cast<size_t>(1U + need);
     } else {
-      if (runningStatus == 0) {
-        consumed += 1;
-        continue;
-      }
-      status = runningStatus;
-      need = midiDataByteCount(status);
-      if (need == 0) {
-        consumed += 1;
-        continue;
-      }
-      if (consumed + need > len) break;
-      data0 = static_cast<uint8_t>(bytes[consumed] & 0x7F);
-      if (need >= 2) data1 = static_cast<uint8_t>(bytes[consumed + 1] & 0x7F);
-      consumed += static_cast<size_t>(need);
+      consumed++;
+      continue;
     }
 
-    // Each BLE-MIDI message: timestamp_low + status + data bytes
     const size_t msgBleLen = static_cast<size_t>(1U + 1U + need);
     if (p + msgBleLen > sizeof(pkt)) {
-      // Flush current packet and start a new one.
-      g_bleMidiChar->setValue(pkt, p);
-      g_bleMidiChar->notify();
+      sendBlePacket(pkt, p);
       p = 0;
       pkt[p++] = th;
     }
+
     pkt[p++] = tl;
     pkt[p++] = status;
     if (need >= 1) pkt[p++] = data0;
     if (need >= 2) pkt[p++] = data1;
   }
+
   if (p > 1) {
-    g_bleMidiChar->setValue(pkt, p);
-    g_bleMidiChar->notify();
+    sendBlePacket(pkt, p);
   }
 }
 
