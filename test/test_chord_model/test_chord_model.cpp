@@ -9,23 +9,23 @@ void test_initial_key_is_c() {
   TEST_ASSERT_EQUAL_STRING("C", m.keyName());
 }
 
-void test_cycle_key_forward_wraps() {
+void test_tonic_forward_wraps() {
   ChordModel m;
-  m.keyIndex = ChordModel::kKeyCount - 1;
-  m.cycleKeyForward();
+  m.setTonicAndMode(11, KeyMode::Major);  // B
+  m.setTonicAndMode(12, KeyMode::Major);  // wraps to C
   TEST_ASSERT_EQUAL(0, m.keyIndex);
   TEST_ASSERT_EQUAL_STRING("C", m.keyName());
 }
 
-void test_cycle_key_backward_wraps() {
+void test_tonic_backward_from_c_to_b() {
   ChordModel m;
-  m.keyIndex = 0;
-  m.cycleKeyBackward();
+  m.setTonicAndMode(0, KeyMode::Major);
+  m.setTonicAndMode(-1, KeyMode::Major);
   TEST_ASSERT_EQUAL(ChordModel::kKeyCount - 1, m.keyIndex);
   TEST_ASSERT_EQUAL_STRING("B", m.keyName());
 }
 
-void test_rebuild_fills_six_surround_chords() {
+void test_rebuild_fills_eight_surround_chords() {
   ChordModel m;
   m.rebuildChords();
   for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
@@ -37,23 +37,27 @@ void test_key_of_c_diatonic_names() {
   ChordModel m;
   m.keyIndex = 0;  // C
   m.rebuildChords();
-  TEST_ASSERT_EQUAL_STRING("Dm", m.surround[0].name);   // ii
-  TEST_ASSERT_EQUAL_STRING("Em", m.surround[1].name);   // iii
-  TEST_ASSERT_EQUAL_STRING("F", m.surround[2].name);    // IV
-  TEST_ASSERT_EQUAL_STRING("G", m.surround[3].name);    // V
-  TEST_ASSERT_EQUAL_STRING("Am", m.surround[4].name);   // vi
-  TEST_ASSERT_EQUAL_STRING("Bdim", m.surround[5].name); // vii°
+  TEST_ASSERT_EQUAL_STRING("C", m.surround[0].name);     // I
+  TEST_ASSERT_EQUAL_STRING("Dm", m.surround[1].name);    // ii
+  TEST_ASSERT_EQUAL_STRING("Em", m.surround[2].name);      // iii
+  TEST_ASSERT_EQUAL_STRING("F", m.surround[3].name);     // IV
+  TEST_ASSERT_EQUAL_STRING("G", m.surround[4].name);     // V
+  TEST_ASSERT_EQUAL_STRING("Am", m.surround[5].name);    // vi
+  TEST_ASSERT_EQUAL_STRING("Bdim", m.surround[6].name);  // vii°
+  TEST_ASSERT_EQUAL_STRING("Bb", m.surround[7].name);    // ♭VII
 }
 
 void test_surround_roles() {
   ChordModel m;
   m.rebuildChords();
-  TEST_ASSERT_EQUAL((int)ChordRole::Standard,  (int)m.surround[0].role);  // ii
-  TEST_ASSERT_EQUAL((int)ChordRole::Standard,  (int)m.surround[1].role);  // iii
-  TEST_ASSERT_EQUAL((int)ChordRole::Principal, (int)m.surround[2].role);  // IV
-  TEST_ASSERT_EQUAL((int)ChordRole::Principal, (int)m.surround[3].role);  // V
-  TEST_ASSERT_EQUAL((int)ChordRole::Standard,  (int)m.surround[4].role);  // vi
-  TEST_ASSERT_EQUAL((int)ChordRole::Tension,   (int)m.surround[5].role);  // vii°
+  TEST_ASSERT_EQUAL((int)ChordRole::Principal, (int)m.surround[0].role);   // I
+  TEST_ASSERT_EQUAL((int)ChordRole::Standard, (int)m.surround[1].role);    // ii
+  TEST_ASSERT_EQUAL((int)ChordRole::Standard, (int)m.surround[2].role);     // iii
+  TEST_ASSERT_EQUAL((int)ChordRole::Principal, (int)m.surround[3].role);   // IV
+  TEST_ASSERT_EQUAL((int)ChordRole::Principal, (int)m.surround[4].role);   // V
+  TEST_ASSERT_EQUAL((int)ChordRole::Standard, (int)m.surround[5].role);     // vi
+  TEST_ASSERT_EQUAL((int)ChordRole::Tension, (int)m.surround[6].role);      // vii°
+  TEST_ASSERT_EQUAL((int)ChordRole::Surprise, (int)m.surround[7].role);     // ♭VII
 }
 
 void test_heart_after_five_plays() {
@@ -98,20 +102,19 @@ void test_key_change_rebuilds() {
   ChordModel m;
   m.keyIndex = 0;
   m.rebuildChords();
-  const char* cIV = m.surround[2].name;  // F in C
-  TEST_ASSERT_EQUAL_STRING("F", cIV);
+  TEST_ASSERT_EQUAL_STRING("F", m.surround[3].name);  // IV in C
 
-  m.cycleKeyForward();  // now Db
+  m.setTonicAndMode(1, KeyMode::Major);  // Db
   TEST_ASSERT_EQUAL_STRING("Db", m.keyName());
-  TEST_ASSERT_EQUAL_STRING("F#", m.surround[2].name);  // IV of Db (enharmonic Gb = F#)
+  TEST_ASSERT_EQUAL_STRING("F#", m.surround[3].name);  // IV of Db
 }
 
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_initial_key_is_c);
-  RUN_TEST(test_cycle_key_forward_wraps);
-  RUN_TEST(test_cycle_key_backward_wraps);
-  RUN_TEST(test_rebuild_fills_six_surround_chords);
+  RUN_TEST(test_tonic_forward_wraps);
+  RUN_TEST(test_tonic_backward_from_c_to_b);
+  RUN_TEST(test_rebuild_fills_eight_surround_chords);
   RUN_TEST(test_key_of_c_diatonic_names);
   RUN_TEST(test_surround_roles);
   RUN_TEST(test_heart_after_five_plays);

@@ -44,10 +44,9 @@ The main interactive screen where the musician selects a key and sees chord sugg
 
 The same concept rearranged for a 320×240 touchscreen:
 
-- **Top bar**: key name displayed large and centered, acts as the key-cycle button.
-- **Middle grid**: 6 chord buttons in a **3-column × 2-row** grid, color-coded identically.
+- **3×3 grid of equal squares**: the **center** cell is the key / heart control; the **eight** outer cells are chord pads (**I**, **ii**, **iii**, **IV**, **V**, **vi**, **vii°**, **♭VII**), placed clockwise from the top-left.
+- All pads use the **same square** size; corner radius scales with cell size.
 - **Bottom status bar**: last action / chord name feedback.
-- Touch targets are sized for fingertip use (~90×50 px minimum).
 
 #### Heart / Surprise Chord
 
@@ -76,15 +75,18 @@ For a given **key** (one of the 12 chromatic pitches, assuming major scale):
 
 | Degree | Quality | Role | Color |
 |--------|---------|------|-------|
-| I | maj | Tonic (center) | — |
+| I | maj | Tonic | Green (principal) |
 | ii | min | Standard | Blue |
 | iii | min | Standard | Blue |
 | IV | maj | Principal | Green |
 | V | maj | Principal | Green |
 | vi | min | Standard | Blue |
 | vii° | dim | Tension | Red |
+| ♭VII | maj (borrowed) | Color / mixolydian borrow | Pink |
 
-The 6 surrounding buttons show **ii, iii, IV, V, vi, vii°** (the non-tonic diatonic chords).
+**Original round UI:** 6 radial buttons showed **ii–vii°** (tonic only in the center readout).
+
+**CoreS3 port:** 8 square pads in a ring show **I, ii, iii, IV, V, vi, vii°, ♭VII** around the center key control.
 
 ### Surprise chord pool (per key)
 

@@ -20,10 +20,12 @@ AFTER FLASH: EXPECTED BEHAVIOR (CoreS3 UI)
 2. Tap the button to enter the play surface.
 3. Play surface:
    - Top center shows the selected key (e.g. "C"). Tap to cycle keys.
-   - 6 chord buttons in a 3x2 grid, color-coded:
-     GREEN = principal chords (IV, V)
-     BLUE  = standard diatonic (ii, iii, vi)
-     RED   = tension / diminished (vii deg)
+   - Center square = key (tap to cycle). Eight square chord pads in a ring (3x3 minus center):
+     I, ii, iii, IV, V, vi, vii, bVII — color-coded:
+     GREEN = principal (I, IV, V)
+     BLUE  = standard (ii, iii, vi)
+     RED   = tension (vii dim)
+     PINK  = borrowed (bVII)
    - Tap a chord to "play" it.
 4. After 5 chord taps the key area shows a heart icon.
    Tap the heart for a surprise chord (modal interchange, etc.).

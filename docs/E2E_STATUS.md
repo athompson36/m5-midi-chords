@@ -12,9 +12,10 @@ Date: 2026-04-08
 - **Firmware build:** PASS
   - RAM: 6.7% (`21840 / 327680`)
   - Flash: 6.5% (`422881 / 6553600`)
-- **Native unit tests:** PASS (14/14)
+- **Native unit tests:** PASS (20/20)
   - `test_chord_model`: 11 tests — key cycling, diatonic generation, roles, heart mechanic, surprise pool
-  - `test_app_settings`: 3 tests — normalize clamps, MIDI out wrap, MIDI in OMNI
+  - `test_app_settings`: 4 tests — row count, normalize clamps, MIDI out wrap, MIDI in OMNI
+  - `test_settings_entry_gesture`: 5 tests — BACK+FWD bezel coverage, 800 ms hold, release/reset, need-release clear
 
 ## Practical E2E conclusion
 

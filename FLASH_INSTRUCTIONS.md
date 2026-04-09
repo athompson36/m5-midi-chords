@@ -13,10 +13,11 @@ This package contains prebuilt images for an **M5Stack CoreS3** (ESP32-S3) runni
 ## What to expect after flashing
 
 1. **Boot splash**: a blue **"Hi! Let's Play"** button appears. Tap it.  
-2. **Play surface**: the selected key is shown top-center (tap to cycle). Six chord buttons in a 3×2 grid are color-coded (green = principal, blue = standard diatonic, red = tension).  
+2. **Play surface**: the key is the **center square** (tap to cycle). **Eight square** chord pads sit in a ring around it (I, ii–vii°, plus ♭VII), color-coded by role.  
 3. **Heart surprise**: after 5 chord taps the key area becomes a **♥**. Tap it for a surprise chord.  
-4. **Settings**: place two fingers on the left and right screen edges and hold **~0.8 s**.  
+4. **Settings**: hold **BACK** and **FWD** on the bottom bezel together **~0.8 s**.  
    BACK / FWD move the row; SELECT changes values; last row saves and exits.  
+   **SD card** (optional): FAT32 microSD in the CoreS3 slot. Use **Backup to SD card** / **Restore from SD card** in settings; file **`/m5chord_backup.txt`** on the card root.  
 
 See `README.md` and `docs/ORIGINAL_UX_SPEC.md` for the full behavior reference.
 
