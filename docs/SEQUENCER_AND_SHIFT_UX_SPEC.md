@@ -2,9 +2,10 @@
 
 This document specifies a **planned** feature set (partially scaffolded in firmware):
 
-- **Done (UI shell):** `Screen::Sequencer`, 16-cell grid, **BACK/FWD** bezel paging vs Play, step **cycle** (rest → tie → chords 0–7 → rest), NVS/SD for raw step bytes. **Not done:** **X–Y MIDI page**, dropdown editor, MIDI playback, **Shift** layer, **clock division**, **per-step arpeggiator**, 3-way bezel ring (Play–Seq–XY).
+- **Done (UI shell):** `Screen::Sequencer`, 16-cell grid, step picker dropdown (surround chords + tie + rest + `S?` surprise), NVS/SD for pattern + `SeqExtras`, live playhead highlight, and internal transport-driven MIDI step output (chord/rest/tie/surprise) for active lane. **`Screen::XyPad`** touch pad + CC storage. **Bezel ring** (short tap BACK/FWD): **Transport → Play → Sequencer → X–Y** (cyclic). Internal **transport** (speaker metronome, playhead, count-in) — **not** full MIDI clock I/O yet.
+- **Not done:** spec **Shift** layer (long-press SELECT for params — distinct from Play **key-edit latch** on SELECT), **clock division**, **per-step arpeggiator**, assignable X–Y **MIDI** (14-bit, release policy, editor), **Shift+BACK/FWD** parameter nudge.
 
-Full target behavior: a **4×4 beat grid** step sequencer, **bezel-based paging** between the play surface and the sequencer, and a **Shift** layer (long-press **SELECT**) that remaps chord pads and step cells to **MIDI parameter / program-change** controls, with **Shift+BACK/FWD** for incremental edits and accelerated holds.
+Full target behavior: a **4×4 beat grid** step sequencer, **bezel-based paging** among main surfaces, and a **Shift** layer (long-press **SELECT**) that remaps chord pads and step cells to **MIDI parameter / program-change** controls, with **Shift+BACK/FWD** for incremental edits and accelerated holds.
 
 **Audio playback**, **expanded NVS/SD** (per-step arp + divisions), **dropdown editor**, and **Shift** are not implemented yet; audible playback depends on **MIDI OUT** (see Milestone 3 in `DEV_ROADMAP.md`) and **internal or external clock**.
 
@@ -31,12 +32,12 @@ Full target behavior: a **4×4 beat grid** step sequencer, **bezel-based paging*
 | **Sequencer** | 4×4 grid + transport/position indicators (exact chrome TBD). |
 | **X–Y** | Full-screen (or large) **pad**: horizontal axis = **parameter A**, vertical axis = **parameter B**, user-assignable to MIDI destinations (CC, channel). |
 
-**BACK / FWD** (bezel) **cycle** among main control pages in a fixed ring, e.g. **Play → Sequencer → X–Y → Play** (order TBD; must be **discoverable** in UI, e.g. tiny page indicator). *Firmware today: only **Play ↔ Sequencer**; X–Y is not implemented yet.*
+**BACK / FWD** (bezel) **cycle** among main control pages in a fixed ring. **Firmware today:** **Transport → Play → Sequencer → X–Y** (then wraps). Order must stay **discoverable** in UI (hint line / indicators).
 
 **Conflict avoidance**: Other gestures that use the bezel must stay unambiguous:
 
-- **Settings entry** (today): **hold BACK + FWD** ~800 ms — available from **Play**, **Sequencer**, and (when implemented) **X–Y** so paging taps do not open settings.
-- **Key picker combo** (today): **hold SELECT + tap key** — remains on **Play**; other pages use **SELECT** for their own modifiers (e.g. Shift) per below.
+- **Settings entry** (today): **hold BACK + FWD** ~800 ms — from **Transport, Play, Sequencer, X–Y** (and other surfaces that register the gesture).
+- **Play**: **SELECT** tap toggles **key-edit latch**; tap center to open **Key & mode** picker. Spec **Shift** (long-press SELECT) is **not** implemented yet — product must reconcile latch vs Shift when Shift lands.
 
 ---
 

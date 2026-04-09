@@ -1,6 +1,6 @@
 # Build Information
 
-Firmware build date: April 8, 2026  
+Firmware build date: April 9, 2026  
 Target: **M5Stack CoreS3** (ESP32-S3, 16 MB flash)  
 Platform: `espressif32` v6.7.0  
 Framework: Arduino (ESP32 Arduino core via PlatformIO)
@@ -34,24 +34,24 @@ These offsets are standard for this board profile. The same files are produced u
 |------------------|-------------:|--------------|--------------|
 | bootloader.bin   | 15,104       | 14.8 KiB     | 0x0          |
 | partitions.bin   | 3,072        | 3.0 KiB      | 0x8000       |
-| firmware.bin     | 422,400      | 412.5 KiB    | 0x10000      |
+| firmware.bin     | 813,408      | 794.3 KiB    | 0x10000      |
 
 ## MD5 checksums
 
-Computed from the build synced to the repository root on 2026-04-08 (also matches `.pio/build/m5stack-cores3/` after `platformio run -e m5stack-cores3`).
+Computed from `.pio/build/m5stack-cores3/` on 2026-04-09.
 
 | File           | MD5                              |
 |----------------|----------------------------------|
 | bootloader.bin | `56375b35ec88d866bcaf826644b86231` |
 | partitions.bin | `118cbdbfce82eb12bbdeb7c59af2fce8` |
-| firmware.bin   | `c8009b407fa4aa989a452d4cf0965a4c` |
+| firmware.bin   | `74649ac9a1a98da992d77e50ecf2220e` |
 
 ## Memory usage (reference)
 
 From the same build:
 
-- RAM: about 6.6% (21,592 / 327,680 bytes)
-- Flash: about 6.4% (422,037 / 6,553,600 bytes program storage)
+- RAM: about 13.7% (44,844 / 327,680 bytes)
+- Flash: about 12.4% (813,045 / 6,553,600 bytes program storage)
 
 ## Rebuild
 

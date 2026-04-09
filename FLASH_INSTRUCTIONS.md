@@ -1,6 +1,6 @@
 # M5Stack CoreS3 — chord firmware (prebuilt images)
 
-**Firmware bundle date: 2026-04-08**
+**Firmware bundle date: 2026-04-09**
 
 This package contains prebuilt images for an **M5Stack CoreS3** (ESP32-S3) running the chord-suggester firmware built with PlatformIO (`m5stack-cores3` environment).
 
@@ -12,12 +12,12 @@ This package contains prebuilt images for an **M5Stack CoreS3** (ESP32-S3) runni
 
 ## What to expect after flashing
 
-1. **Boot splash**: a blue **"Hi! Let's Play"** button appears. Tap it.  
-2. **Play surface**: the key is the **center square** (tap to cycle). **Eight square** chord pads sit in a ring around it (I, ii–vii°, plus ♭VII), color-coded by role.  
-3. **Heart surprise**: after 5 chord taps the key area becomes a **♥**. Tap it for a surprise chord.  
+1. **Play surface** appears after boot.  
+2. The key is the **center square** (tap to cycle). **Eight square** chord pads sit in a ring around it (I, ii-vii°, plus bVII), color-coded by role.  
+3. **Heart surprise**: after 5 chord taps the key area becomes a **heart** marker. Tap it for a surprise chord.  
 4. **Settings**: hold **BACK** and **FWD** on the bottom bezel together **~0.8 s**.  
    BACK / FWD move the row; SELECT changes values; last row saves and exits.  
-   **SD card** (optional): FAT32 microSD in the CoreS3 slot. Use **Backup to SD card** / **Restore from SD card** in settings; file **`/m5chord_backup.txt`** on the card root.  
+   **SD card** (optional): FAT32 microSD in the CoreS3 slot. Use backup/restore in settings; project/global data is stored under **`/fs-chord-seq/`**.
 
 See `README.md` and `docs/ORIGINAL_UX_SPEC.md` for the full behavior reference.
 
@@ -29,7 +29,7 @@ See `README.md` and `docs/ORIGINAL_UX_SPEC.md` for the full behavior reference.
 
 ## Option 1 — Python flasher (recommended)
 
-From the folder that contains `flash_firmware.py` and the three `.bin` files:
+From the repository root (where `flash_firmware.py` exists):
 
 **Windows**
 
@@ -45,7 +45,17 @@ Or double-click `flash_firmware.bat` (runs the same script).
 python3 flash_firmware.py
 ```
 
-The script picks a serial port when possible and flashes at `0x0`, `0x8000`, and `0x10000`.
+The script picks a serial port when possible and flashes `bootloader.bin` at `0x0`, `partitions.bin` at `0x8000`, and `firmware.bin` at `0x10000`.
+
+## Release artifact source
+
+Release builds are produced by PlatformIO in:
+
+- `.pio/build/m5stack-cores3/bootloader.bin`
+- `.pio/build/m5stack-cores3/partitions.bin`
+- `.pio/build/m5stack-cores3/firmware.bin`
+
+If you distribute root-level `.bin` files, refresh them from `.pio/build/m5stack-cores3/` immediately before publishing.
 
 ## Option 2 — Manual `esptool` command
 

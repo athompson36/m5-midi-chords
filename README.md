@@ -6,63 +6,69 @@ Based on the [original round-display prototype](https://www.youtube.com/watch?v=
 
 ## User Experience
 
-### Boot Splash
-Power on → a centered **"Hi! Let's Play"** button appears. Tap to enter the play surface.
+### Startup
 
-### Play Surface
-- **Bottom bezel**: **BACK** or **FWD** (short tap) opens the **Sequencer** page (4×4 step grid). **SELECT** tap is reserved for future use on that row. From the sequencer, **BACK** or **FWD** returns to the chord play surface. **Hold BACK+FWD** ~0.8 s still opens **Settings** (from play or sequencer).
-- **Center square**: shows **tonic name** and **mode** (e.g. `C` / `maj`). **Hold SELECT** (bezel) **and** press the **key center** together to open the **Key & mode** picker: choose one of **12 tonics**, a **mode** (Major, Natural minor, Harmonic minor, Dorian, Mixolydian), then **Done** (or **Cancel**). A normal tap on the key alone plays the tonic (or the surprise heart when lit).
-- **8 square chord buttons** arranged in a ring around the key (3×3 layout with the key in the middle): **I**, **ii**, **iii**, **IV**, **V**, **vi**, **vii°**, and **♭VII** (borrowed), color-coded:
-  - **Green** — principal (I, IV, V)
-  - **Blue** — standard diatonic (ii, iii, vi)
-  - **Red** — tension (vii°)
-  - **Pink** — borrowed **♭VII**
-- Tap any chord to "play" it (visual feedback now; MIDI output in a future milestone).
+On power-on the firmware goes **straight to the Play surface** (no splash gate). A classic **“Hi! Let's Play”** splash may be reintroduced later as an option.
+
+### Bezel navigation (main ring)
+
+Short tap **BACK** or **FWD** cycles pages in a fixed ring:
+
+**Transport → Play → Sequencer → X–Y → …**
+
+- **Transport**: internal clock, play/stop/rec, metronome, count-in, BPM/project name.
+- **Play**: chord pad surface (below).
+- **Sequencer**: 16-step grid (3 lanes; pattern stored in **NVS**).
+- **X–Y**: two-axis control pad (CC assignments in NVS; **MIDI output is not yet wired** — see `src/MidiOut.cpp`).
+
+**Hold BACK + FWD** together ~**0.8 s** opens **Settings** from Transport, Play, Sequencer, or X–Y.
+
+### Play surface
+
+- **SELECT** (single tap): toggles **key-edit** mode — center key highlighted; tap center again to open **Key & mode** (12 tonics × modes). *(Older “hold SELECT + key” combos may still be described in legacy docs.)*
+- **Center square**: tonic name and mode (e.g. `C` / `maj`). Tap plays tonic or **heart** / surprise when available.
+- **Eight chord pads** in a 3×3 ring (**I** … **♭VII**), color-coded by harmonic role.
+- Chord and tonic taps emit **MIDI note on** on the configured channel/velocity (`Serial` / USB CDC — see `docs/MIDI_STACK.md`).
 
 ### Sequencer (basic UI)
-A **16-step** grid (**4 bars × 4 beats**) is available from the play surface via the **BACK** or **FWD** bezel. **Tap a step** to **cycle** its value: **rest** (`-`) → **tie** (`~`) → **surround chords** in order → rest (placeholder until the chord dropdown from `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md` is implemented). The pattern is in RAM only until NVS storage is added. Playback and Shift modifier are not implemented yet.
 
-### Heart / Surprise Chord
-After tapping **5 chord buttons**, the key area transforms into a **heart (♥)**. Tapping it plays a surprise chord — a colorful voicing outside the standard diatonic set (modal interchange, Neapolitan, secondary dominant, etc.). The heart resets after use.
+**16-step** grid (**4 bars × 4 beats**), three **lanes**, tool row (quantize, swing, step probability, chord random). **Tap a step** to **cycle**: rest (`-`) → tie (`~`) → surround chord indices → … (a full **dropdown** picker is planned — `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`). Patterns and extras persist in **NVS** (and optional SD backup). **Audible step MIDI** and **Shift** layer are not implemented yet.
+
+### Heart / Surprise chord
+
+After **5** registered chord plays, the center shows a **heart**. Tapping it plays a **surprise** harmony from the pool; the counter resets when consumed.
 
 ### Settings
-From the **play** or **sequencer** surface, hold **BACK** and **FWD** on the bottom bezel together **~0.8 s** to open settings.
 
-| Setting | Range | Default |
-|---------|-------|---------|
-| MIDI out channel | 1–16 | 1 |
-| MIDI in channel | OMNI or 1–16 | OMNI |
-| Brightness | 10–100% | 80% |
-| Output velocity | 40–127 | 100 |
+Section-based UI: **MIDI**, **Display**, **Seq/Arp**, **SD/Backup**, etc. Long-press **FWD** ~0.8 s from Play/Seq/XY can also open Settings (see firmware).
 
-Navigate with **BACK** / **FWD** (row) and **SELECT** (change value). Rows **Backup to SD card** / **Restore from SD card** copy or load **`/m5chord_backup.txt`** on a FAT32 microSD (CoreS3 slot). Last row: **Save & exit** (persists settings, key, and sequencer pattern to NVS flash).
+| Examples | Notes |
+|----------|--------|
+| MIDI out / in / **transpose** (−24…+24) / transport routes / clock | Per `AppSettings`; transpose affects play MIDI |
+| Brightness, theme | Display section |
+| Velocity, arpeggiator mode, BPM, project name | Seq/Arp section |
 
-### Planned: Sequencer completion & Shift layer
+**Save** persists to NVS. **Backup / Restore** use SD when present (`docs` / `SdBackup`).
 
-The basic **sequencer grid** and **bezel paging** (Play ↔ Sequencer) are in the firmware; remaining work includes a dedicated **X–Y MIDI page** (freely assignable CCs, e.g. filter/FX), **chord dropdown** per step, **MIDI playback**, **Shift** = long-press **SELECT**, **per-step clock division**, **per-step arpeggiator**, **Shift+BACK/FWD** parameter edits, and expanded **NVS/SD** schema — all in **`docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`**.
+### Planned (see `docs/TODO_IMPLEMENTATION.md`)
 
-### Planned: MIDI transports, clock, BPM (not implemented yet)
-
-Design is captured in **`docs/MIDI_INPUT_SPEC.md`**:
-
-- **Independent MIDI IN channel filters** for **USB**, **Bluetooth**, and **DIN** (DIN reserved for a future hardware revision or add-on).
-- **MIDI clock follow** with a **small corner BPM** readout that **flashes on the beat** (discrete, low-contrast).
+- Full **MIDI IN/OUT** stack, per-transport channels, clock follow, **Shift** modifier, per-step **arp/division**, sequencer **dropdown**, **hardware E2E** sign-off.
 
 ## Project Layout
 
 - `platformio.ini` — build and test environments
-- `src/main.cpp` — CoreS3 display + touch UI (boot, play, settings screens)
+- `src/main.cpp` — CoreS3 display + touch UI
 - `src/ChordModel.h` / `.cpp` — key-aware chord generation, roles, surprise pool
 - `src/AppSettings.h` / `.cpp` — settings data and cycling logic
-- `src/SettingsStore.h` / `.cpp` — NVS persistence via ESP32 Preferences (settings, key/mode, 16-step pattern)
-- `src/SdBackup.h` / `.cpp` — optional microSD backup/restore (`/m5chord_backup.txt`, CoreS3 SPI pins)
-- `test/test_chord_model/` — chord model unit tests
-- `test/test_app_settings/` — settings unit tests
-- `variants/m5stack_cores3/` — local board variant pin definitions
-- `docs/ORIGINAL_UX_SPEC.md` — original UX reference spec
-- `docs/MIDI_INPUT_SPEC.md` — MIDI transports, per-interface channels, clock/BPM UI
-- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md` — **planned** 4×4 sequencer, bezel paging, Shift modifier (long-press SELECT)
-- `docs/DEV_ROADMAP.md` — development milestones
+- `src/SettingsStore.h` / `.cpp` — NVS persistence (`m5chord` namespace; see `docs/PERSISTENCE_KEYS.md`)
+- `src/SdBackup.h` / `.cpp` — optional microSD backup/restore
+- `src/MidiOut.h` / `.cpp` — MIDI send over **USB CDC Serial** (host may need a serial↔MIDI bridge; see `docs/MIDI_STACK.md`)
+- `test/` — native unit tests
+- `variants/m5stack_cores3/` — board variant
+- `docs/DEV_ROADMAP.md` — milestones
+- `docs/TODO_IMPLEMENTATION.md` — remaining feature backlog
+- `docs/PERSISTENCE_KEYS.md` — NVS key table
+- `docs/HARDWARE_E2E_CHECKLIST.md` — manual hardware verification
 
 ## Build
 
@@ -78,10 +84,12 @@ Output: `.pio/build/m5stack-cores3/firmware.bin`
 pio run -e m5stack-cores3 --target upload
 ```
 
+Or: `make upload`
+
 ## Run Tests
 
 ```bash
 pio test -e native
 ```
 
-Runs on the host machine (requires `gcc`/`g++` on PATH).
+Runs on the host (requires `gcc`/`g++` on PATH).

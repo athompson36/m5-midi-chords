@@ -29,11 +29,13 @@ bool sdBackupReadGlobal(AppSettings& s);
 /// `/fs-chord-seq/<project>/settings/project.txt` — key, mode, seq, XY CCs, BPM.
 /// `projectFolderBasename` must be a single path segment (no slashes).
 bool sdBackupWriteProject(const ChordModel& m, const uint8_t seqPattern[3][16], const uint8_t seqCh[3],
-                          uint8_t xyCcA, uint8_t xyCcB, uint16_t bpm, uint8_t chordVoicing,
+                          uint8_t xyChannel, uint8_t xyCcA, uint8_t xyCcB, uint8_t xyCurveA,
+                          uint8_t xyCurveB, uint16_t bpm, uint8_t chordVoicing,
                           const SeqExtras* seqExtras, const char* projectFolderBasename);
 
 bool sdBackupReadProject(ChordModel& m, uint8_t seqPattern[3][16], uint8_t seqCh[3], uint8_t* xyCcA,
-                         uint8_t* xyCcB, uint16_t* bpm, uint8_t* chordVoicing, SeqExtras* seqExtras,
+                         uint8_t* xyCcB, uint8_t* xyChannel, uint8_t* xyCurveA, uint8_t* xyCurveB,
+                         uint16_t* bpm, uint8_t* chordVoicing, SeqExtras* seqExtras,
                          const char* projectFolderBasename);
 
 /// Lists first-level project directories under SD_BACKUP_ROOT (excludes `_global`). Returns false on I/O error.
@@ -41,11 +43,13 @@ bool sdBackupListProjects(char out[][48], int maxProjects, int* outCount);
 
 /// Backwards-compatible: writes global + project, same paths as above.
 bool sdBackupWriteAll(const AppSettings& s, const ChordModel& m, const uint8_t seqPattern[3][16],
-                      const uint8_t seqCh[3], uint8_t xyCcA, uint8_t xyCcB, uint16_t bpm,
-                      uint8_t chordVoicing, const SeqExtras* seqExtras,
+                      const uint8_t seqCh[3], uint8_t xyChannel, uint8_t xyCcA, uint8_t xyCcB,
+                      uint8_t xyCurveA, uint8_t xyCurveB, uint16_t bpm, uint8_t chordVoicing,
+                      const SeqExtras* seqExtras,
                       const char* projectFolderBasename);
 
 /// Restores global settings, then project from the given folder (or legacy single-file path — none).
 bool sdBackupReadAll(AppSettings& s, ChordModel& m, uint8_t seqPattern[3][16], uint8_t seqCh[3],
-                     uint8_t* xyCcA, uint8_t* xyCcB, uint16_t* bpm, uint8_t* chordVoicing,
-                     SeqExtras* seqExtras, const char* projectFolderBasename);
+                     uint8_t* xyCcA, uint8_t* xyCcB, uint8_t* xyChannel, uint8_t* xyCurveA,
+                     uint8_t* xyCurveB, uint16_t* bpm, uint8_t* chordVoicing, SeqExtras* seqExtras,
+                     const char* projectFolderBasename);

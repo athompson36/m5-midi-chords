@@ -12,6 +12,14 @@ struct SeqExtras {
   uint8_t chordRandPct[3];
   /// Per-step trigger probability 0–100 (100 = always).
   uint8_t stepProb[3][16];
+  /// Per-step clock division enum (0..3 = 1x/2x/4x/8x).
+  uint8_t stepClockDiv[3][16];
+  /// Per-step arp enabled toggle (0/1).
+  uint8_t arpEnabled[3][16];
+  /// Per-step arp pattern enum (0..3 = Up/Down/UpDown/Random).
+  uint8_t arpPattern[3][16];
+  /// Per-step arp clock division enum (0..3 = 1x/2x/4x/8x).
+  uint8_t arpClockDiv[3][16];
 };
 
 void seqExtrasInitDefaults(SeqExtras* e);

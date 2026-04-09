@@ -5,6 +5,9 @@
 
 struct ChordModel;
 
+/// Call once from `setup()` before other NVS loads. Writes `schema` when missing / upgrades.
+void prefsMigrateOnBoot();
+
 void settingsLoad(AppSettings& s);
 void settingsSave(const AppSettings& s);
 
@@ -27,9 +30,9 @@ void chordVoicingSave(uint8_t v);
 void uiThemeLoad(uint8_t* out);
 void uiThemeSave(uint8_t v);
 
-/// X–Y pad CC numbers (0–127), defaults 74 / 71.
-void xyMappingLoad(uint8_t* ccA, uint8_t* ccB);
-void xyMappingSave(uint8_t ccA, uint8_t ccB);
+/// X–Y mapping: channel (1–16), CC numbers (0–127), curve per axis (0=lin,1=log,2=invert).
+void xyMappingLoad(uint8_t* channel, uint8_t* ccA, uint8_t* ccB, uint8_t* curveA, uint8_t* curveB);
+void xyMappingSave(uint8_t channel, uint8_t ccA, uint8_t ccB, uint8_t curveA, uint8_t curveB);
 
 /// Metronome / transport prefs (click volume 0–100, toggles).
 void transportPrefsLoadFromStore(uint8_t* clickVol, bool* metro, bool* countIn, bool* xyArm);

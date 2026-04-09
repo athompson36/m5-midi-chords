@@ -15,6 +15,20 @@ This document specifies how the firmware should treat **multiple MIDI transports
 
 ---
 
+## Current firmware snapshot (vs this spec)
+
+Normative sections below are the target; this table only describes what ships **today** (`AppSettings`, `main.cpp` Transport screen + Settings).
+
+| Topic | Shipped now | This spec (future) |
+|-------|-------------|-------------------|
+| MIDI IN filter | Per-transport **`midiInChannelUsb`**, **`midiInChannelBle`**, **`midiInChannelDin`** (0 = OMNI, 1–16); rows in **Settings** + USB quick dropdown on **Transport** | Keep independent per-transport channels (key names may settle to `inChUsb/inChBle/inChDin`) |
+| MIDI OUT channel | **`midiOutChannel`**; Settings + Transport dropdown | Per-destination / thru TBD |
+| Clock / routing UI | **`midiClockSource`**, **`midiTransportSend`**, **`midiTransportReceive`**, **`clkFollow`**, **`clkFlashEdge`** in Settings; realtime clock events gated by receive/source/follow | Source-priority policy and advanced timeout behavior |
+| BPM / tempo UI | **Transport**: large **project** BPM (NVS), tap → numeric editor, long-press → tap tempo; **Play** corner BPM shown when following external clock; flash edge selectable (`1/4`/`1/8`) | Additional UX polish/timeout/fade behavior |
+| Ingress & clock parse | **USB foundation shipped** (`MidiIngress` running-status + realtime + SPP, source-tagged dispatch, transport clock hooks + rolling BPM); BLE and DIN now both use byte-provider hooks (`m5ChordBleMidiRead`, `m5ChordDinMidiRead`) feeding the same parser queue; queue-overflow counters exposed per transport for debug (`QDrop`) | Hardware-validated USB / BLE / DIN full pipeline |
+
+---
+
 ## Transport model
 
 Each transport is a **separate ingress** into the same internal pipeline (note events, clock, etc.). Events carry a **source tag**: `Usb`, `Ble`, `Din` (future).
@@ -26,6 +40,28 @@ Each transport is a **separate ingress** into the same internal pipeline (note e
 | DIN | UART RX (31250 baud) + opto-isolator | **Future revision**: reserved GPIO / connector; same software path once bytes are framed as MIDI. |
 
 **Routing rule:** For each incoming message, determine **transport** → apply that transport’s **receive channel filter** → if accepted, forward to chord analyzer / clock handler / thru as configured.
+
+### BLE ingress integration hook (implemented)
+
+`MidiIngress` exposes an optional C hook for the BLE transport layer:
+
+- `extern "C" size_t m5ChordBleMidiRead(uint8_t* dst, size_t cap);`
+- Called by `midiIngressPollBle()` every loop tick.
+- Return the number of raw MIDI bytes copied into `dst` (up to `cap`).
+- Default weak implementation returns `0` (safe no-op if BLE stack is absent).
+- Returned bytes are enqueued and parsed through the same BLE source-tagged pipeline as test-fed bytes.
+
+This keeps parser behavior identical across USB/BLE paths while allowing the BLE stack to be integrated independently.
+
+### DIN ingress integration hook (implemented)
+
+`MidiIngress` exposes an optional C hook for the DIN/UART transport layer:
+
+- `extern "C" size_t m5ChordDinMidiRead(uint8_t* dst, size_t cap);`
+- Called by `midiIngressPollDin()` every loop tick.
+- Return the number of raw MIDI bytes copied into `dst` (up to `cap`).
+- Default weak implementation returns `0` (safe no-op if DIN transport is absent).
+- Returned bytes are enqueued and parsed through the same DIN source-tagged pipeline as test-fed bytes.
 
 ---
 
@@ -97,12 +133,47 @@ When chord detection exists:
 
 ---
 
+## Panic policy (current snapshot)
+
+Current firmware routes all panic calls through a centralized trigger helper and emits `all-notes-off`
+(CC123 on channels 1-16) for these triggers:
+
+| Trigger | Required now | Implemented |
+|---------|--------------|-------------|
+| Enter Settings (gesture/bezel paths) | Yes | Yes |
+| Ring page navigation | Yes | Yes |
+| Local transport stop | Yes | Yes |
+| External transport stop (`clkFollow` + route gate) | Yes | Yes |
+| Enter key picker from Play | Yes | Yes |
+| Exit key picker (`Done` / `Cancel`) | Yes | Yes |
+| Open project-name editor | Yes | Yes |
+| Exit project-name editor (`Save` / `Cancel`) | Yes | Yes |
+| Enter SD restore picker | Yes | Yes |
+| Exit SD restore picker (`Cancel` / selection) | Yes | Yes |
+| Single-project direct restore path | Yes | Yes |
+| Factory reset | Yes | Yes |
+| Settings save-and-exit | Yes | Yes |
+| Recoverable SD error feedback paths (`restore`/`backup`/`list`) | Yes | Yes |
+
+Optional/future policy candidates (not required in current UX contract):
+
+- Non-fatal UI-only operations that do not change mode.
+- Additional transport/system faults not yet surfaced as explicit user actions.
+
+Validation aid:
+
+- `MIDI Debug` now includes compact per-trigger panic counters (selected trigger groups) so
+  hardware bring-up can verify policy wiring during real UI flows.
+
+---
+
 ## Implementation order (suggested)
 
 1. USB MIDI IN + single global channel filter (prove pipeline).
 2. Split channel filters: **USB** vs **Bluetooth** in settings + NVS migration.
 3. MIDI clock receive + BPM + corner flash.
-4. DIN UART path + `inChDin` when hardware is available.
+4. BLE transport stack implementation of `m5ChordBleMidiRead` (queue/parser contract already in place).
+5. DIN UART/provider path + `inChDin` (now wired in firmware; validate final pinout/hardware behavior).
 
 ---
 

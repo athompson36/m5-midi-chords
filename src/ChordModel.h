@@ -49,6 +49,8 @@ struct ChordModel {
 
   void registerPlay();
   void consumeHeart();
+  /// Pool index used for the next `nextSurprise()` (before it advances).
+  int surprisePeekIndex() const { return surpriseNext; }
   const ChordInfo& nextSurprise();
 
   /// Chord root pitch class 0–11 for surround pad (for MIDI / arpeggiator).

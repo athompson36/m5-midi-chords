@@ -9,6 +9,10 @@ void seqExtrasInitDefaults(SeqExtras* e) {
     e->chordRandPct[L] = 0;
     for (int i = 0; i < 16; ++i) {
       e->stepProb[L][i] = 100;
+      e->stepClockDiv[L][i] = 0;
+      e->arpEnabled[L][i] = 0;
+      e->arpPattern[L][i] = 0;
+      e->arpClockDiv[L][i] = 0;
     }
   }
 }

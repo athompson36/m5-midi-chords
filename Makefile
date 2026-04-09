@@ -6,7 +6,7 @@ else
   PIO = .venv/bin/pio
 endif
 
-.PHONY: build test native upload monitor clean
+.PHONY: build test native upload monitor clean issues-export
 
 build:
 	$(PIO) run -e m5stack-cores3
@@ -24,3 +24,7 @@ monitor:
 
 clean:
 	$(PIO) run -t clean
+
+# Regenerate scripts/github-issues.json + docs/GITHUB_ISSUES.md from docs/TODO_IMPLEMENTATION.md
+issues-export:
+	python3 scripts/gen_github_issues.py
