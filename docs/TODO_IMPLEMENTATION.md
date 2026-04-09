@@ -132,7 +132,7 @@ This is the working backlog to reach parity with `DEV_ROADMAP.md`, `MIDI_INPUT_S
 - [ ] Run checklist on CoreS3; record dates/results in `E2E_STATUS.md` or checklist appendix.
       2026-04-09: host verification updated in `docs/E2E_STATUS.md` (build/tests PASS); manual on-device checklist pass still pending sign-off.
 - [x] **Tag** `v0.1.0` (or agreed version); **release notes** with known issues + recovery (flash, NVS clear, SD).  
-      Tagged `v0.1.0` from commit `5f5109f`; release notes finalized in `docs/RELEASE_NOTES_v0.1.0.md`.
+      Tagged `v0.1.0` from commit `5f5109f`; release notes finalized in `docs/RELEASE_NOTES_v0.1.0.md`; GitHub release published.
 - [x] Verify `FLASH_INSTRUCTIONS.md` / CI match release artifact.  
       Updated flashing/build docs to align with CI artifact path (`.pio/build/m5stack-cores3`) and current build metadata/checksums.
 
