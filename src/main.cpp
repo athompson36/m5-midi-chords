@@ -306,6 +306,8 @@ static MidiEventHistory s_midiEventHistory;
 static uint32_t s_playClockFlashUntilMs = 0;
 static char s_midiDetectedChord[12] = "";
 static uint32_t s_midiDetectedChordUntilMs = 0;
+static char s_surpriseChordLabel[12] = "";
+static bool s_surpriseChordActive = false;
 static char s_midiDetectedSuggest[12] = "";
 static uint32_t s_midiDetectedSuggestUntilMs = 0;
 static char s_midiSuggestTop3[3][12] = {};
@@ -1081,21 +1083,30 @@ static void drawPlayKeyCell(bool fingerOnKey, bool showLastPlayedOutline) {
     M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
                              g_uiPalette.heart);
     M5.Display.drawRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad, TFT_WHITE);
-    char modeLine[20];
-    g_model.formatKeyCenterLine2(modeLine, sizeof(modeLine));
     M5.Display.setFont(nullptr);
     M5.Display.setTextColor(TFT_WHITE, g_uiPalette.heart);
     const int cx = g_keyRect.x + g_keyRect.w / 2;
     const int cy = g_keyRect.y + g_keyRect.h / 2;
-    const uint8_t heartSz = (cell >= 56) ? 3 : 2;
-    M5.Display.setTextSize(heartSz);
+    const uint8_t mainSz = (cell >= 52) ? 2 : 1;
+    M5.Display.setTextSize(mainSz);
+    M5.Display.setTextDatum(middle_center);
+    M5.Display.drawString("\x03 Tap!", cx, cy);
+  } else if (s_surpriseChordActive && s_surpriseChordLabel[0] != '\0') {
+    const int rad = max(4, min(g_keyRect.w, g_keyRect.h) / 8);
+    M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
+                             g_uiPalette.surprise);
+    M5.Display.drawRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad, TFT_WHITE);
+    M5.Display.setFont(nullptr);
+    M5.Display.setTextColor(TFT_WHITE, g_uiPalette.surprise);
+    const int cx = g_keyRect.x + g_keyRect.w / 2;
+    const int cy = g_keyRect.y + g_keyRect.h / 2;
+    const uint8_t mainSz = (cell >= 52) ? 2 : 1;
+    M5.Display.setTextSize(mainSz);
     M5.Display.setTextDatum(bottom_center);
-    M5.Display.drawString("\x03", cx, cy - 1);
+    M5.Display.drawString(s_surpriseChordLabel, cx, cy - 1);
     M5.Display.setTextSize(1);
     M5.Display.setTextDatum(top_center);
-    char line2[28];
-    snprintf(line2, sizeof(line2), "%s  %s", g_model.keyName(), modeLine);
-    M5.Display.drawString(line2, cx, cy + 1);
+    M5.Display.drawString("surprise!", cx, cy + 1);
   } else if (fingerOnKey) {
     const int rad = max(4, cell / 8);
     M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
@@ -1532,8 +1543,10 @@ static void playResetBezelFastCycle() {
   s_playBezelHoldDir = 0;
 }
 
-static void playTriggerSurroundByIdx(int hit) {
-  if (hit < 0 || hit >= ChordModel::kSurroundCount) return;
+static bool playTriggerSurroundByIdx(int hit) {
+  if (hit < 0 || hit >= ChordModel::kSurroundCount) return false;
+  s_surpriseChordActive = false;
+  const bool heartBefore = g_model.heartAvailable;
   const uint8_t mch = static_cast<uint8_t>(g_settings.midiOutChannel - 1);
   const uint8_t vel = applyOutputVelocityCurve(g_settings.outputVelocity);
   uint8_t vcap = g_chordVoicing;
@@ -1544,6 +1557,7 @@ static void playTriggerSurroundByIdx(int hit) {
   g_model.registerPlay();
   playHistoryRecord(static_cast<uint8_t>(hit));
   transportSetLiveChord(static_cast<int8_t>(hit));
+  return !heartBefore && g_model.heartAvailable;
 }
 
 void drawPlayCategorySurface(int fingerCell) {
@@ -3377,18 +3391,21 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
         }
         if (g_model.heartAvailable) {
           const int poolIdx = g_model.surprisePeekIndex();
+          const ChordInfo& si = g_model.surprisePool[poolIdx % ChordModel::kSurprisePoolSize];
+          strncpy(s_surpriseChordLabel, si.name, sizeof(s_surpriseChordLabel) - 1);
+          s_surpriseChordLabel[sizeof(s_surpriseChordLabel) - 1] = '\0';
+          s_surpriseChordActive = true;
           g_model.nextSurprise();
           g_model.consumeHeart();
           midiPlaySurprisePad(g_model, poolIdx, mch, vel, vcap, g_settings.arpeggiatorMode,
                               g_settings.transposeSemitones);
         } else {
-          g_model.registerPlay();
           midiPlayTonicChord(g_model, mch, vel, vcap, g_settings.arpeggiatorMode, g_settings.transposeSemitones);
         }
       }
       g_lastPlayedOutline = -2;
       transportSetLiveChord(-1);
-      playRedrawAfterOutlineChange();
+      drawPlaySurface();
       return;
     }
     if (hit >= 0 && hit < ChordModel::kSurroundCount) {
@@ -3434,8 +3451,12 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
           return;
         }
       }
-      playTriggerSurroundByIdx(hit);
-      playRedrawAfterOutlineChange();
+      const bool heartTransitioned = playTriggerSurroundByIdx(hit);
+      if (heartTransitioned) {
+        drawPlaySurface();
+      } else {
+        playRedrawAfterOutlineChange();
+      }
       return;
     }
     if (hadHighlight) {
@@ -4146,8 +4167,8 @@ void drawTransportSurface() {
   }
   snprintf(sy, sizeof(sy), "%s", midiClockSourceLabel(g_settings.midiClockSource));
   snprintf(st, sizeof(st), "%s", arpeggiatorModeLabel(g_settings.arpeggiatorMode));
-  drawRoundedButton(g_trMidiOutBtn, g_uiPalette.panelMuted, mo, 2);
-  drawRoundedButton(g_trMidiInBtn, g_uiPalette.panelMuted, mi, 2);
+  drawRoundedButton(g_trMidiOutBtn, g_uiPalette.panelMuted, mo, 1);
+  drawRoundedButton(g_trMidiInBtn, g_uiPalette.panelMuted, mi, 1);
   drawRoundedButton(g_trSyncBtn, g_uiPalette.panelMuted, sy, 1);
   drawRoundedButton(g_trStrumBtn, g_uiPalette.panelMuted, st, 1);
 
