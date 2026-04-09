@@ -44,7 +44,6 @@ struct Rect {
 
 // --- State ---
 enum class Screen : uint8_t {
-  Boot,
   Play,
   Sequencer,
   XyPad,
@@ -66,11 +65,11 @@ Rect g_keyPickDone;
 void drawKeyPicker();
 void drawProjectNameEdit();
 void drawSdProjectPick();
-void drawSettingsUi(int activeZone = -1);
+void drawSettingsUi();
 
 ChordModel g_model;
 AppSettings g_settings;
-Screen g_screen = Screen::Boot;
+Screen g_screen = Screen::Play;
 
 String g_lastAction = "";
 
@@ -80,13 +79,23 @@ uint32_t touchStartMs = 0;
 SettingsEntryGestureState g_settingsEntryGesture;
 bool suppressNextPlayTap = false;
 
+static uint32_t s_bezelLongPressMs = 0;
+static bool s_bezelLongPressFired = false;
+bool checkBezelLongPressSettings(uint8_t touchCount);
+
 int g_settingsRow = 0;
 bool g_factoryResetConfirmArmed = false;
 char g_settingsFeedback[48] = "";
 
+enum class SettingsPanel : uint8_t { Menu, Midi, Display, SeqArp, Storage };
+
+SettingsPanel g_settingsPanel = SettingsPanel::Menu;
+int g_settingsCursorRow = 0;
+int g_settingsListScroll = 0;
+
 constexpr uint32_t kDualCornerHoldMs = 800;
 
-constexpr int kBezelBarH = 34;
+constexpr int kBezelBarH = 20;
 
 constexpr uint8_t kSeqRest = 0xFE;
 constexpr uint8_t kSeqTie = 0xFD;
@@ -113,12 +122,20 @@ static uint8_t s_seqGestureMaxTouches = 0;
 enum class SeqTool : uint8_t { None, Quantize, Swing, StepProb, ChordRand };
 static SeqTool g_seqTool = SeqTool::None;
 static int8_t g_seqProbFocusStep = -1;
-static Rect g_seqToolRects[4];
 static Rect g_seqSliderPanel{};
 static bool g_seqSliderActive = false;
 static bool g_seqDraggingSlider = false;
+/// When true, top row of seq cells (0–3) shows tool picks; toggled by a single-finger tap on SELECT.
+static bool s_seqSelectHeld = false;
+static int s_seqChordDropStep = -1;
+static uint32_t s_seqStepDownMs = 0;
+static int s_seqStepDownIdx = -1;
+static bool s_seqLongPressHandled = false;
+static constexpr uint32_t kSeqLongPressMs = 400;
 static uint8_t s_playGestureMaxTouches = 0;
 static bool s_playVoicingCombo = false;
+/// Tap SELECT (single-finger) toggles key-edit mode: center key highlighted; tap key to open picker.
+static bool s_playSelectLatched = false;
 
 Rect g_xyPadRect;
 uint8_t g_xyCcA = 74;
@@ -129,7 +146,6 @@ static uint8_t s_xyMidiSentY = 255;
 int g_lastTouchX = 0;
 int g_lastTouchY = 0;
 int g_lastPlayedOutline = -1;
-bool g_comboKeyPickerLatch = false;
 
 char g_projectCustomName[48] = "";
 char g_lastProjectFolder[48] = "";
@@ -150,26 +166,9 @@ Rect g_sdPickCancel;
 
 // --- Geometry helpers ---
 
-int buttonZoneForPoint(int x, int y, int w, int h) {
-  const int bandH = h / 5;
-  const int top = h - bandH;
-  if (y < top) return -1;
-  const int zoneW = w / 3;
-  if (x < zoneW) return 0;
-  if (x < zoneW * 2) return 1;
-  return 2;
-}
-
 bool pointInRect(int px, int py, const Rect& r) {
   return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
 }
-
-struct ShiftSwipeTrack {
-  bool armed;
-  int sx, sy, lx, ly;
-};
-
-ShiftSwipeTrack g_shiftSwipe{};
 
 struct XyComboTrack {
   bool armed;
@@ -177,6 +176,18 @@ struct XyComboTrack {
 };
 
 XyComboTrack s_xyCombo{};
+
+// Skip full-screen redraws while touch is held unless visual state changes (avoids flicker).
+static int s_playTouchDrawChord = -100;
+static bool s_playTouchDrawOnKey = false;
+static bool s_playTouchDrawVoicing = false;
+static int s_lastSeqPreviewCell = -9999;
+static bool s_wasSeqMultiFinger = false;
+static int s_lastDrawnSeqComboTab = -99999;
+static int8_t s_settingsDropRowId = -1;
+static int s_settingsDropOptScroll = 0;
+static int8_t s_xyTouchZone = -1;
+static bool s_xyTwoFingerSurfaceDrawn = false;
 
 Rect g_trPlay;
 Rect g_trStop;
@@ -193,98 +204,6 @@ void drawXyPadSurface();
 void drawTransportSurface();
 void processTransportTouch(uint8_t touchCount, int w, int h);
 
-/// SELECT + swipe on main area: up=Transport, down=Sequencer, left=XyPad, right=Play.
-bool pollShiftSwipeNavigate(int w, int h) {
-  layoutBottomBezels(w, h);
-  const uint8_t n = M5.Touch.getCount();
-  if (g_screen != Screen::Play && g_screen != Screen::Sequencer && g_screen != Screen::XyPad &&
-      g_screen != Screen::Transport) {
-    g_shiftSwipe.armed = false;
-    return false;
-  }
-
-  if (n >= 2) {
-    int sel = -1;
-    int main = -1;
-    for (uint8_t i = 0; i < n; ++i) {
-      const auto& d = M5.Touch.getDetail(i);
-      if (!d.isPressed()) continue;
-      if (pointInRect(d.x, d.y, g_bezelSelect)) {
-        sel = static_cast<int>(i);
-      } else if (d.y < h - kBezelBarH) {
-        main = static_cast<int>(i);
-      }
-    }
-    if (sel >= 0 && main >= 0) {
-      const auto& dm = M5.Touch.getDetail(static_cast<uint8_t>(main));
-      if (!g_shiftSwipe.armed) {
-        g_shiftSwipe.sx = dm.x;
-        g_shiftSwipe.sy = dm.y;
-        g_shiftSwipe.armed = true;
-      }
-      g_shiftSwipe.lx = dm.x;
-      g_shiftSwipe.ly = dm.y;
-    }
-    return false;
-  }
-
-  if (n == 0 && g_shiftSwipe.armed) {
-    const int dx = g_shiftSwipe.lx - g_shiftSwipe.sx;
-    const int dy = g_shiftSwipe.ly - g_shiftSwipe.sy;
-    g_shiftSwipe.armed = false;
-    constexpr int kThresh = 45;
-    if (abs(dx) < kThresh && abs(dy) < kThresh) {
-      return false;
-    }
-    int dir = -1;
-    if (abs(dx) > abs(dy)) {
-      if (dx > kThresh) {
-        dir = 3;
-      } else if (dx < -kThresh) {
-        dir = 2;
-      }
-    } else {
-      if (dy > kThresh) {
-        dir = 1;
-      } else if (dy < -kThresh) {
-        dir = 0;
-      }
-    }
-    if (dir < 0) {
-      return false;
-    }
-    beforeLeaveSequencer();
-    s_xyMidiSentX = 255;
-    s_xyMidiSentY = 255;
-    switch (dir) {
-      case 0:
-        g_screen = Screen::Transport;
-        drawTransportSurface();
-        break;
-      case 1:
-        g_screen = Screen::Sequencer;
-        drawSequencerSurface();
-        break;
-      case 2:
-        g_screen = Screen::XyPad;
-        drawXyPadSurface();
-        break;
-      case 3:
-        g_screen = Screen::Play;
-        drawPlaySurface();
-        break;
-      default:
-        break;
-    }
-    return true;
-  }
-
-  if (n < 2) {
-    g_shiftSwipe.armed = false;
-  }
-  return false;
-}
-
 // --- Brightness ---
 
 void applyBrightness() {
@@ -292,48 +211,15 @@ void applyBrightness() {
   M5.Display.setBrightness(v);
 }
 
-// =====================================================================
-//  BOOT SPLASH
-// =====================================================================
-
-void drawBootSplash() {
-  const int w = M5.Display.width();
-  const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
-
-  // Square button: same vertical size as the old 64px-tall bar, width = height.
-  constexpr int btnSide = 64;
-  constexpr int cornerR = 10;
-  const int btnX = (w - btnSide) / 2;
-  const int btnY = (h - btnSide) / 2;
-
-  M5.Display.fillRoundRect(btnX, btnY, btnSide, btnSide, cornerR, g_uiPalette.splash);
-  M5.Display.drawRoundRect(btnX, btnY, btnSide, btnSide, cornerR, TFT_WHITE);
-
-  // Size-1 default font keeps two short lines readable inside a 64x64 hit area.
-  M5.Display.setFont(nullptr);
-  M5.Display.setTextSize(1);
-  M5.Display.setTextColor(TFT_WHITE, g_uiPalette.splash);
-  M5.Display.setTextDatum(middle_center);
-  const int cx = btnX + btnSide / 2;
-  const int cy = btnY + btnSide / 2;
-  constexpr int linePitch = 10;
-  M5.Display.drawString("Hi!", cx, cy - linePitch / 2);
-  M5.Display.drawString("Let's play", cx, cy + linePitch / 2);
-}
-
-void processBootTouch(uint8_t touchCount) {
-  if (touchCount == 0 && wasTouchActive) {
-    wasTouchActive = false;
-    g_model.rebuildChords();
-    g_screen = Screen::Play;
-    g_lastAction = "";
-    // drawPlaySurface called from loop after state change
-    return;
-  }
-  if (touchCount > 0 && !wasTouchActive) {
-    wasTouchActive = true;
-  }
+void resetSettingsNav() {
+  g_settingsPanel = SettingsPanel::Menu;
+  g_settingsCursorRow = 0;
+  g_settingsListScroll = 0;
+  s_settingsDropRowId = -1;
+  s_settingsDropOptScroll = 0;
+  g_factoryResetConfirmArmed = false;
+  g_settingsRow = 0;
+  g_settingsFeedback[0] = '\0';
 }
 
 // =====================================================================
@@ -377,11 +263,14 @@ static constexpr int kChordSlotCol[ChordModel::kSurroundCount] = {0, 1, 2, 2, 2,
                                                                     0, 0};
 
 void layoutBottomBezels(int w, int h) {
-  const int bz = w / 3;
+  constexpr int deadZone = 12;
   const int bezelY = h - kBezelBarH;
-  g_bezelBack = {0, bezelY, bz, kBezelBarH};
-  g_bezelSelect = {bz, bezelY, bz, kBezelBarH};
-  g_bezelFwd = {2 * bz, bezelY, bz, kBezelBarH};
+  constexpr int kTouchOvershoot = 60;
+  const int touchH = kBezelBarH + kTouchOvershoot;
+  const int zone = w / 3;
+  g_bezelBack = {0, bezelY, zone - deadZone / 2, touchH};
+  g_bezelSelect = {zone + deadZone / 2, bezelY, zone - deadZone, touchH};
+  g_bezelFwd = {2 * zone + deadZone / 2, bezelY, zone - deadZone / 2, touchH};
 }
 
 void drawBezelBarStrip() {
@@ -390,71 +279,91 @@ void drawBezelBarStrip() {
   M5.Display.fillRect(0, h - kBezelBarH, w, kBezelBarH, g_uiPalette.bg);
   M5.Display.setFont(nullptr);
   M5.Display.setTextSize(1);
-  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextDatum(bottom_center);
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("BACK", g_bezelBack.x + g_bezelBack.w / 2,
-                        g_bezelBack.y + g_bezelBack.h / 2);
-  M5.Display.drawString("SELECT", g_bezelSelect.x + g_bezelSelect.w / 2,
-                        g_bezelSelect.y + g_bezelSelect.h / 2);
-  M5.Display.drawString("FWD", g_bezelFwd.x + g_bezelFwd.w / 2,
-                        g_bezelFwd.y + g_bezelFwd.h / 2);
+  M5.Display.drawString("BACK", g_bezelBack.x + g_bezelBack.w / 2, h - 2);
+  M5.Display.drawString("SELECT", g_bezelSelect.x + g_bezelSelect.w / 2, h - 2);
+  M5.Display.drawString("FWD", g_bezelFwd.x + g_bezelFwd.w / 2, h - 2);
+}
+
+bool checkBezelLongPressSettings(uint8_t touchCount) {
+  if (touchCount == 1) {
+    const auto& d = M5.Touch.getDetail(0);
+    if (d.isPressed() && pointInRect(d.x, d.y, g_bezelFwd)) {
+      if (s_bezelLongPressMs == 0) s_bezelLongPressMs = millis();
+      if (!s_bezelLongPressFired && millis() - s_bezelLongPressMs >= kDualCornerHoldMs) {
+        s_bezelLongPressFired = true;
+        suppressNextPlayTap = true;
+        g_screen = Screen::Settings;
+        resetSettingsNav();
+        return true;
+      }
+      return false;
+    }
+  }
+  s_bezelLongPressMs = 0;
+  s_bezelLongPressFired = false;
+  return false;
 }
 
 void computePlaySurfaceLayout(int w, int h) {
-  const int playH = h - kBezelBarH;
-  constexpr int margin = 6;
-  const int cell = min((w - 2 * margin) / 3, (playH - 2 * margin) / 3);
-  const int gridPx = cell * 3;
-  const int ox = (w - gridPx) / 2;
-  const int oy = margin + max(0, (playH - 2 * margin - gridPx) / 2);
+  layoutBottomBezels(w, h);
+  constexpr int hintH = 14;
+  constexpr int padAfterHint = 2;
+  constexpr int hGap = 4;
+  constexpr int vGap = 2;
+  const int gridTop = hintH + padAfterHint;
+  const int gridBottom = h - kBezelBarH;
+  const int availH = gridBottom - gridTop - 2 * vGap;
+  const int availW = w - 4 - 2 * hGap;
+  const int cellH = availH / 3;
+  const int cellW = availW / 3;
+  const int cell = min(cellW, cellH);
+  const int totalW = cell * 3 + hGap * 2;
+  const int totalH = cell * 3 + vGap * 2;
+  const int ox = (w - totalW) / 2;
+  const int oy = gridBottom - totalH;
 
-  g_keyRect = {ox + cell, oy + cell, cell, cell};
+  g_keyRect = {ox + (cell + hGap), oy + (cell + vGap), cell, cell};
   for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
     const int row = kChordSlotRow[i];
     const int col = kChordSlotCol[i];
-    g_chordRects[i] = {ox + col * cell, oy + row * cell, cell, cell};
+    g_chordRects[i] = {ox + col * (cell + hGap), oy + row * (cell + vGap), cell, cell};
   }
-
-  layoutBottomBezels(w, h);
 }
 
 void computeSequencerLayout(int w, int h) {
   layoutBottomBezels(w, h);
-  const int playH = h - kBezelBarH;
   constexpr int margin = 4;
-  constexpr int titleH = 14;
-  constexpr int tabH = 22;
-  const int toolY = margin + titleH + 4;
-  constexpr int toolH = 22;
-  constexpr int toolGap = 4;
-  const int toolW = (w - 2 * margin - 3 * toolGap) / 4;
-  for (int t = 0; t < 4; ++t) {
-    g_seqToolRects[t] = {margin + t * (toolW + toolGap), toolY, toolW, toolH};
-  }
-  g_seqSliderActive = (g_seqTool != SeqTool::None);
-  int tabY = toolY + toolH + 6;
-  if (g_seqSliderActive) {
-    const int panelY = toolY + toolH + 4;
-    constexpr int panelH = 40;
-    g_seqSliderPanel = {margin, panelY, w - 2 * margin, panelH};
-    tabY = panelY + panelH + 6;
-  }
-  const int tabGap = 4;
+  constexpr int hintH = 14;
+  constexpr int tabH = 20;
+  constexpr int tabGap = 4;
+  const int tabY = hintH + 2;
   const int tabW = (w - margin * 2 - tabGap * 2) / 3;
   for (int t = 0; t < 3; ++t) {
     g_seqTabRects[t] = {margin + t * (tabW + tabGap), tabY, tabW, tabH};
   }
-  const int gridTop = tabY + tabH + 4;
-  const int availH = playH - gridTop - margin;
-  const int availW = w - 2 * margin;
-  const int cell = max(22, min(availW / 4, availH / 4));
-  const int gridW = cell * 4;
-  const int ox = (w - gridW) / 2;
+  g_seqSliderActive = (g_seqTool != SeqTool::None);
+  const int gridTop = tabY + tabH + 2;
+  int gridBottom = h - kBezelBarH - 2;
+  if (g_seqSliderActive) {
+    constexpr int panelH = 52;
+    const int panelY = gridBottom - panelH;
+    g_seqSliderPanel = {margin, panelY, w - 2 * margin, panelH};
+    gridBottom = panelY - 2;
+  }
+  const int availH = gridBottom - gridTop;
+  constexpr int hGap = 4;
+  constexpr int vGap = 2;
+  const int cellW = max(22, (w - 2 * margin - 3 * hGap) / 4);
+  const int cellH = max(22, (availH - 3 * vGap) / 4);
+  const int totalW = cellW * 4 + hGap * 3;
+  const int ox = (w - totalW) / 2;
   const int oy = gridTop;
   for (int i = 0; i < 16; ++i) {
     const int row = i / 4;
     const int col = i % 4;
-    g_seqCellRects[i] = {ox + col * cell, oy + row * cell, cell, cell};
+    g_seqCellRects[i] = {ox + col * (cellW + hGap), oy + row * (cellH + vGap), cellW, cellH};
   }
 }
 
@@ -465,18 +374,15 @@ int hitTestSeqTab(int px, int py) {
   return -1;
 }
 
-int hitTestSeqTool(int px, int py) {
-  for (int t = 0; t < 4; ++t) {
-    if (pointInRect(px, py, g_seqToolRects[t])) return t;
-  }
-  return -1;
-}
-
 uint8_t seqLaneClamped() { return g_seqLane > 2 ? 0 : g_seqLane; }
 
 Rect seqSliderTrackRect() {
   const Rect& p = g_seqSliderPanel;
-  return {p.x + 8, p.y + 22, max(8, p.w - 16), 12};
+  const bool sub = (g_seqTool == SeqTool::StepProb);
+  const int trackTop = sub ? (p.y + 23) : (p.y + 13);
+  const int trackBottom = p.y + p.h - 3;
+  const int trackH = max(10, trackBottom - trackTop);
+  return {p.x + 6, trackTop, max(8, p.w - 44), trackH};
 }
 
 void seqSetSliderValueFromX(int px) {
@@ -536,24 +442,35 @@ void drawSelectionEdge(const Rect& r) {
   M5.Display.drawRoundRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6, rad + 3, g_uiPalette.highlightRing);
 }
 
-// fingerChord: -100 = none, -2 = key, 0-7 = chord index (finger-down highlight)
-void drawPlaySurface(int fingerChord, bool fingerOnKey) {
-  const int w = M5.Display.width();
-  const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
+// Last-played ring on the tonic: use white so it never reads as SELECT latch (pink/magenta).
+void drawLastPlayedKeyEdge(const Rect& r) {
+  const int rad = max(4, min(r.w, r.h) / 8);
+  M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, rad + 2, TFT_WHITE);
+  M5.Display.drawRoundRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6, rad + 3, TFT_WHITE);
+}
 
-  computePlaySurfaceLayout(w, h);
-
-  M5.Display.setFont(nullptr);
-  M5.Display.setTextDatum(top_left);
-  M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("SHIFT+swipe pages  |  SELECT+① voicing", 4, 4);
-
+static void drawPlayKeyCell(bool fingerOnKey, bool showLastPlayedOutline) {
   const int cell = g_keyRect.w;
   if (g_model.heartAvailable) {
-    const uint8_t keyText = (cell >= 56) ? 3 : 2;
-    drawRoundedButton(g_keyRect, g_uiPalette.heart, "\x03", keyText);
+    const int rad = max(4, min(g_keyRect.w, g_keyRect.h) / 8);
+    M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
+                             g_uiPalette.heart);
+    M5.Display.drawRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad, TFT_WHITE);
+    char modeLine[20];
+    g_model.formatKeyCenterLine2(modeLine, sizeof(modeLine));
+    M5.Display.setFont(nullptr);
+    M5.Display.setTextColor(TFT_WHITE, g_uiPalette.heart);
+    const int cx = g_keyRect.x + g_keyRect.w / 2;
+    const int cy = g_keyRect.y + g_keyRect.h / 2;
+    const uint8_t heartSz = (cell >= 56) ? 3 : 2;
+    M5.Display.setTextSize(heartSz);
+    M5.Display.setTextDatum(bottom_center);
+    M5.Display.drawString("\x03", cx, cy - 1);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextDatum(top_center);
+    char line2[28];
+    snprintf(line2, sizeof(line2), "%s  %s", g_model.keyName(), modeLine);
+    M5.Display.drawString(line2, cx, cy + 1);
   } else if (fingerOnKey) {
     const int rad = max(4, cell / 8);
     M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
@@ -570,33 +487,146 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
     M5.Display.setTextSize(1);
     M5.Display.setTextDatum(top_center);
     M5.Display.drawString(modeLine, cx, cy + 1);
+  } else if (s_playSelectLatched) {
+    constexpr uint16_t kKeyEditYellow = 0xFFE0;
+    constexpr uint16_t kKeyEditPink = 0xF81F;
+    const int rad = max(4, cell / 8);
+    M5.Display.fillRoundRect(g_keyRect.x, g_keyRect.y, g_keyRect.w, g_keyRect.h, rad,
+                             kKeyEditYellow);
+    M5.Display.drawRoundRect(g_keyRect.x - 1, g_keyRect.y - 1, g_keyRect.w + 2, g_keyRect.h + 2,
+                             rad + 1, kKeyEditPink);
+    M5.Display.drawRoundRect(g_keyRect.x - 2, g_keyRect.y - 2, g_keyRect.w + 4, g_keyRect.h + 4,
+                             rad + 2, kKeyEditPink);
+    char modeLine[20];
+    g_model.formatKeyCenterLine2(modeLine, sizeof(modeLine));
+    M5.Display.setFont(nullptr);
+    M5.Display.setTextColor(TFT_BLACK, kKeyEditYellow);
+    const int cx = g_keyRect.x + g_keyRect.w / 2;
+    const int cy = g_keyRect.y + g_keyRect.h / 2;
+    M5.Display.setTextSize((cell >= 52) ? 2 : 1);
+    M5.Display.setTextDatum(bottom_center);
+    M5.Display.drawString(g_model.keyName(), cx, cy - 1);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextDatum(top_center);
+    M5.Display.drawString(modeLine, cx, cy + 1);
   } else {
     char modeLine[20];
     g_model.formatKeyCenterLine2(modeLine, sizeof(modeLine));
     drawKeyCenterTwoLine(g_keyRect, g_model.keyName(), modeLine);
   }
-
-  const uint8_t chordText = (cell >= 52) ? 2 : 1;
-  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
-    if (s_drawPlayVoicingShift && i == 0) {
-      char lv[12];
-      snprintf(lv, sizeof(lv), "V%u", (unsigned)g_chordVoicing);
-      drawRoundedButton(g_chordRects[0], g_uiPalette.accentPress, lv, chordText);
-      continue;
-    }
-    uint16_t bg = colorForRole(g_model.surround[i].role);
-    if (i == fingerChord) {
-      bg = g_uiPalette.accentPress;
-    }
-    drawRoundedButton(g_chordRects[i], bg, g_model.surround[i].name, chordText);
+  if (showLastPlayedOutline && g_lastPlayedOutline == -2 && !s_playSelectLatched) {
+    drawLastPlayedKeyEdge(g_keyRect);
   }
+}
 
-  if (fingerChord < -50) {
-    if (g_lastPlayedOutline == -2) {
-      drawSelectionEdge(g_keyRect);
-    } else if (g_lastPlayedOutline >= 0 && g_lastPlayedOutline < ChordModel::kSurroundCount) {
-      drawSelectionEdge(g_chordRects[g_lastPlayedOutline]);
-    }
+static void drawPlayChordCell(int i, int fingerChord, bool showLastPlayedOutline) {
+  const int cell = g_keyRect.w;
+  const uint8_t chordText = (cell >= 52) ? 2 : 1;
+  if (s_drawPlayVoicingShift && i == 0) {
+    char lv[12];
+    snprintf(lv, sizeof(lv), "V%u", (unsigned)g_chordVoicing);
+    drawRoundedButton(g_chordRects[0], g_uiPalette.accentPress, lv, chordText);
+    return;
+  }
+  uint16_t bg = colorForRole(g_model.surround[i].role);
+  if (fingerChord >= 0 && i == fingerChord) {
+    bg = g_uiPalette.accentPress;
+  }
+  drawRoundedButton(g_chordRects[i], bg, g_model.surround[i].name, chordText);
+  if (showLastPlayedOutline && fingerChord < -50 && g_lastPlayedOutline == i) {
+    drawSelectionEdge(g_chordRects[i]);
+  }
+}
+
+// Union of key + chord pads, padded so clearing covers drawSelectionEdge / drawLastPlayedKeyEdge
+// spill (rings extend a few pixels outside each rect).
+static Rect playSurfaceGridBoundsPadded(int pad) {
+  int x0 = g_keyRect.x;
+  int y0 = g_keyRect.y;
+  int x1 = g_keyRect.x + g_keyRect.w;
+  int y1 = g_keyRect.y + g_keyRect.h;
+  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
+    const Rect& c = g_chordRects[i];
+    x0 = min(x0, c.x);
+    y0 = min(y0, c.y);
+    x1 = max(x1, c.x + c.w);
+    y1 = max(y1, c.y + c.h);
+  }
+  return {x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad};
+}
+
+// Redraw only the play grid (not the hint strip): clears selection-ring spill, then paints all pads.
+static void playRedrawGridBand() {
+  constexpr int kRingSpillPad = 4;
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  computePlaySurfaceLayout(w, h);
+  Rect band = playSurfaceGridBoundsPadded(kRingSpillPad);
+  const int maxY = h - kBezelBarH;
+  if (band.x < 0) {
+    band.w += band.x;
+    band.x = 0;
+  }
+  if (band.y < 0) {
+    band.h += band.y;
+    band.y = 0;
+  }
+  if (band.x + band.w > w) {
+    band.w = w - band.x;
+  }
+  if (band.y + band.h > maxY) {
+    band.h = maxY - band.y;
+  }
+  if (band.w > 0 && band.h > 0) {
+    M5.Display.fillRect(band.x, band.y, band.w, band.h, g_uiPalette.bg);
+  }
+  drawPlayKeyCell(false, true);
+  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
+    drawPlayChordCell(i, -100, true);
+  }
+}
+
+static void playRedrawAfterOutlineChange() {
+  if (transportIsCountIn() || transportIsRecordingLive()) {
+    drawPlaySurface();
+    return;
+  }
+  M5.Display.startWrite();
+  playRedrawGridBand();
+  drawBezelBarStrip();
+  M5.Display.endWrite();
+}
+
+static void playRedrawClearFingerHighlight() {
+  if (transportIsCountIn() || transportIsRecordingLive()) {
+    drawPlaySurface();
+    return;
+  }
+  M5.Display.startWrite();
+  playRedrawGridBand();
+  drawBezelBarStrip();
+  M5.Display.endWrite();
+}
+
+// fingerChord: -100 = none, -2 = key, 0-7 = chord index (finger-down highlight)
+void drawPlaySurface(int fingerChord, bool fingerOnKey) {
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  computePlaySurfaceLayout(w, h);
+  M5.Display.startWrite();
+  M5.Display.fillRect(0, 0, w, h - kBezelBarH, g_uiPalette.bg);
+
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextWrap(false);
+  M5.Display.setTextDatum(top_left);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+  M5.Display.drawString("BACK/FWD: Transport / Pad / Seq / XY   SELECT: key edit", 4, 2);
+
+  const bool showLp = fingerChord < -50;
+  drawPlayKeyCell(fingerOnKey, showLp);
+  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
+    drawPlayChordCell(i, fingerChord, showLp);
   }
 
   if (transportIsCountIn()) {
@@ -617,6 +647,7 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
   }
 
   drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 int hitTestPlay(int px, int py) {
@@ -659,86 +690,15 @@ const char* seqStepLabel(uint8_t v) {
 void drawSequencerSurface(int fingerCell) {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
+  M5.Display.startWrite();
+  M5.Display.fillRect(0, 0, w, h - kBezelBarH, g_uiPalette.bg);
   computeSequencerLayout(w, h);
 
   M5.Display.setFont(nullptr);
-  M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
-  M5.Display.setTextDatum(top_center);
-  M5.Display.setTextSize(2);
-  M5.Display.drawString("Sequencer", w / 2, 2);
+  M5.Display.setTextDatum(top_left);
   M5.Display.setTextSize(1);
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("tabs=lane  SELECT+tab=MIDI  row=Qnt Swg Prb Rnd", w / 2, 18);
-
-  const char* toolLabs[4] = {"Qnt", "Swg", "Prb", "Rnd"};
-  const SeqTool toolMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
-                              SeqTool::ChordRand};
-  for (int t = 0; t < 4; ++t) {
-    const bool on = (g_seqTool == toolMap[t]);
-    uint16_t bg = on ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted;
-    drawRoundedButton(g_seqToolRects[t], bg, toolLabs[t], 1);
-    if (on) {
-      M5.Display.drawRoundRect(g_seqToolRects[t].x, g_seqToolRects[t].y, g_seqToolRects[t].w,
-                             g_seqToolRects[t].h, max(4, g_seqToolRects[t].h / 8),
-                             g_uiPalette.highlightRing);
-    }
-  }
-
-  if (g_seqSliderActive) {
-    M5.Display.fillRoundRect(g_seqSliderPanel.x, g_seqSliderPanel.y, g_seqSliderPanel.w,
-                             g_seqSliderPanel.h, 6, g_uiPalette.panelMuted);
-    M5.Display.drawRoundRect(g_seqSliderPanel.x, g_seqSliderPanel.y, g_seqSliderPanel.w,
-                             g_seqSliderPanel.h, 6, g_uiPalette.settingsBtnBorder);
-    const char* title = "";
-    switch (g_seqTool) {
-      case SeqTool::Quantize:
-        title = "Quantize (grid snap)";
-        break;
-      case SeqTool::Swing:
-        title = "Swing";
-        break;
-      case SeqTool::StepProb:
-        title = "Step probability";
-        break;
-      case SeqTool::ChordRand:
-        title = "Chord random (octave spread)";
-        break;
-      default:
-        title = "";
-        break;
-    }
-    M5.Display.setTextDatum(top_center);
-    M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
-    M5.Display.setTextSize(1);
-    M5.Display.drawString(title, g_seqSliderPanel.x + g_seqSliderPanel.w / 2,
-                          g_seqSliderPanel.y + 4);
-    char sub[40];
-    if (g_seqTool == SeqTool::StepProb) {
-      if (g_seqProbFocusStep >= 0) {
-        snprintf(sub, sizeof(sub), "step %u  (tap another step)", (unsigned)g_seqProbFocusStep + 1);
-      } else {
-        snprintf(sub, sizeof(sub), "tap step or slide for all");
-      }
-      M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-      M5.Display.drawString(sub, g_seqSliderPanel.x + g_seqSliderPanel.w / 2,
-                            g_seqSliderPanel.y + 14);
-    }
-    const Rect tr = seqSliderTrackRect();
-    M5.Display.fillRoundRect(tr.x, tr.y, tr.w, tr.h, 4, g_uiPalette.bg);
-    const uint8_t sv = seqSliderDisplayedValue();
-    const int fillW = max(0, (tr.w * static_cast<int>(sv)) / 100);
-    if (fillW > 0) {
-      M5.Display.fillRoundRect(tr.x, tr.y, fillW, tr.h, 4, g_uiPalette.seqLaneTab);
-    }
-    M5.Display.drawRoundRect(tr.x, tr.y, tr.w, tr.h, 4, g_uiPalette.settingsBtnBorder);
-    char pct[8];
-    snprintf(pct, sizeof(pct), "%u%%", (unsigned)sv);
-    M5.Display.setTextDatum(middle_right);
-    M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.panelMuted);
-    M5.Display.drawString(pct, g_seqSliderPanel.x + g_seqSliderPanel.w - 6,
-                          tr.y + tr.h / 2);
-  }
+  M5.Display.drawString("tap=chord  hold=clear  SELECT=toggle tools", 4, 2);
 
   for (int t = 0; t < 3; ++t) {
     char lab[20];
@@ -753,8 +713,24 @@ void drawSequencerSurface(int fingerCell) {
     }
   }
 
+  static const char* kToolLabs[4] = {"Qnt", "Swg", "Prb", "Rnd"};
+  static const SeqTool kToolMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
+                                      SeqTool::ChordRand};
+
   for (int i = 0; i < 16; ++i) {
     const Rect& r = g_seqCellRects[i];
+
+    if (s_seqSelectHeld && i < 4) {
+      const bool on = (g_seqTool == kToolMap[i]);
+      uint16_t bg = on ? g_uiPalette.seqLaneTab : g_uiPalette.accentPress;
+      drawRoundedButton(r, bg, kToolLabs[i], 1);
+      if (on) {
+        M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
+                               g_uiPalette.highlightRing);
+      }
+      continue;
+    }
+
     const uint8_t v = g_seqPattern[g_seqLane][i];
     uint16_t bg = g_uiPalette.panelMuted;
     if (v == kSeqRest) {
@@ -789,16 +765,97 @@ void drawSequencerSurface(int fingerCell) {
     }
   }
 
+  if (g_seqSliderActive) {
+    M5.Display.fillRoundRect(g_seqSliderPanel.x, g_seqSliderPanel.y, g_seqSliderPanel.w,
+                             g_seqSliderPanel.h, 6, g_uiPalette.panelMuted);
+    M5.Display.drawRoundRect(g_seqSliderPanel.x, g_seqSliderPanel.y, g_seqSliderPanel.w,
+                             g_seqSliderPanel.h, 6, g_uiPalette.settingsBtnBorder);
+    const char* title = "";
+    switch (g_seqTool) {
+      case SeqTool::Quantize: title = "Quantize"; break;
+      case SeqTool::Swing: title = "Swing"; break;
+      case SeqTool::StepProb: title = "Step probability"; break;
+      case SeqTool::ChordRand: title = "Chord random"; break;
+      default: break;
+    }
+    M5.Display.setTextDatum(top_center);
+    M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.panelMuted);
+    M5.Display.setTextSize(1);
+    M5.Display.drawString(title, g_seqSliderPanel.x + g_seqSliderPanel.w / 2,
+                          g_seqSliderPanel.y + 4);
+    if (g_seqTool == SeqTool::StepProb) {
+      char sub[40];
+      if (g_seqProbFocusStep >= 0) {
+        snprintf(sub, sizeof(sub), "step %u", (unsigned)g_seqProbFocusStep + 1);
+      } else {
+        snprintf(sub, sizeof(sub), "all steps");
+      }
+      M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.panelMuted);
+      M5.Display.drawString(sub, g_seqSliderPanel.x + g_seqSliderPanel.w / 2,
+                            g_seqSliderPanel.y + 14);
+    }
+    const Rect tr = seqSliderTrackRect();
+    M5.Display.fillRoundRect(tr.x, tr.y, tr.w, tr.h, 6, g_uiPalette.bg);
+    const uint8_t sv = seqSliderDisplayedValue();
+    const int fillW = max(0, (tr.w * static_cast<int>(sv)) / 100);
+    if (fillW > 0) {
+      M5.Display.fillRoundRect(tr.x, tr.y, fillW, tr.h, 6, g_uiPalette.seqLaneTab);
+    }
+    M5.Display.drawRoundRect(tr.x, tr.y, tr.w, tr.h, 6, g_uiPalette.settingsBtnBorder);
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%u%%", (unsigned)sv);
+    M5.Display.setTextDatum(middle_right);
+    M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.panelMuted);
+    M5.Display.drawString(pct, g_seqSliderPanel.x + g_seqSliderPanel.w - 6,
+                          tr.y + tr.h / 2);
+  }
+
+  if (s_seqChordDropStep >= 0 && s_seqChordDropStep < 16) {
+    constexpr int items = 10;
+    const int rowH = max(16, (h - kBezelBarH - 4) / items);
+    const int totalH = rowH * items;
+    const int dropW = 72;
+    const Rect& anchor = g_seqCellRects[s_seqChordDropStep];
+    int dx = anchor.x + anchor.w / 2 - dropW / 2;
+    if (dx < 2) dx = 2;
+    if (dx + dropW > w - 2) dx = w - 2 - dropW;
+    int dy = (h - kBezelBarH - totalH) / 2;
+    if (dy < 2) dy = 2;
+    M5.Display.fillRect(dx - 1, dy - 1, dropW + 2, totalH + 2, g_uiPalette.bg);
+    for (int r = 0; r < items; ++r) {
+      const Rect dr = {dx, dy + r * rowH, dropW, rowH};
+      const char* lab;
+      if (r < 8) {
+        lab = g_model.surround[r].name;
+      } else if (r == 8) {
+        lab = "~ tie";
+      } else {
+        lab = "- rest";
+      }
+      uint16_t bg;
+      if (r < 8) {
+        bg = colorForRole(g_model.surround[r].role);
+      } else if (r == 8) {
+        bg = g_uiPalette.seqTie;
+      } else {
+        bg = g_uiPalette.seqRest;
+      }
+      drawRoundedButton(dr, bg, lab, 1);
+    }
+  }
+
   drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 void computeXyLayout(int w, int h) {
   layoutBottomBezels(w, h);
-  const int playH = h - kBezelBarH;
   constexpr int margin = 8;
   constexpr int topBlock = 58;
+  constexpr int coordH = 12;
   const int padTop = topBlock;
-  const int padH = playH - padTop - margin;
+  const int padBottom = h - kBezelBarH - coordH - 2;
+  const int padH = padBottom - padTop;
   const int padW = w - 2 * margin;
   g_xyPadRect = {margin, padTop, padW, max(40, padH)};
 }
@@ -818,10 +875,34 @@ void xyMapTouchToVals(int px, int py, uint8_t* outX, uint8_t* outY) {
   *outY = static_cast<uint8_t>(127 - (int64_t)relY * 127 / rh);
 }
 
+void drawXyCrosshairOnly() {
+  const Rect& pr = g_xyPadRect;
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  M5.Display.startWrite();
+  M5.Display.fillRoundRect(pr.x + 1, pr.y + 1, pr.w - 2, pr.h - 2, 7, g_uiPalette.xyPadFill);
+  M5.Display.drawRoundRect(pr.x, pr.y, pr.w, pr.h, 8, TFT_WHITE);
+  const int cx = pr.x + (int)((int64_t)g_xyValX * (pr.w - 1) / 127);
+  const int cy = pr.y + (pr.h - 1) - (int)((int64_t)g_xyValY * (pr.h - 1) / 127);
+  M5.Display.drawFastVLine(cx, pr.y, pr.h, g_uiPalette.xyAxis);
+  M5.Display.drawFastHLine(pr.x, cy, pr.w, g_uiPalette.xyAxis);
+  char vals[24];
+  snprintf(vals, sizeof(vals), "%u  %u", (unsigned)g_xyValX, (unsigned)g_xyValY);
+  const int coordY = pr.y + pr.h + 2;
+  M5.Display.fillRect(0, coordY, w, h - kBezelBarH - coordY, g_uiPalette.bg);
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextDatum(top_center);
+  M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
+  M5.Display.drawString(vals, w / 2, coordY);
+  M5.Display.endWrite();
+}
+
 void drawXyPadSurface() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
+  M5.Display.startWrite();
+  M5.Display.fillRect(0, 0, w, h - kBezelBarH, g_uiPalette.bg);
   computeXyLayout(w, h);
 
   M5.Display.setFont(nullptr);
@@ -834,7 +915,7 @@ void drawXyPadSurface() {
   char sub[48];
   snprintf(sub, sizeof(sub), "drag pad  CC%u / CC%u", (unsigned)g_xyCcA, (unsigned)g_xyCcB);
   M5.Display.drawString(sub, w / 2, 22);
-  M5.Display.drawString("BACK/FWD = Play / Seq / XY", w / 2, 34);
+  M5.Display.drawString("BACK/FWD = Transport / Pad / Seq / XY", w / 2, 34);
   M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
   M5.Display.drawString(g_xyRecordToSeq ? "Mode: REC->SEQ (SELECT+pad=toggle)" : "Mode: LIVE CC",
                         w / 2, 46);
@@ -850,11 +931,12 @@ void drawXyPadSurface() {
 
   char vals[24];
   snprintf(vals, sizeof(vals), "%u  %u", (unsigned)g_xyValX, (unsigned)g_xyValY);
-  M5.Display.setTextDatum(bottom_center);
+  M5.Display.setTextDatum(top_center);
   M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
-  M5.Display.drawString(vals, w / 2, pr.y + pr.h - 4);
+  M5.Display.drawString(vals, w / 2, pr.y + pr.h + 2);
 
   drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 void beforeLeaveSequencer() {
@@ -867,24 +949,28 @@ void beforeLeaveSequencer() {
 bool tryEnterSettingsTwoFingerLong(uint8_t touchCount, int w, int h);
 
 void navigateMainRing(int direction) {
-  static const Screen kRing[] = {Screen::Play, Screen::Sequencer, Screen::XyPad};
+  static const Screen kRing[] = {Screen::Transport, Screen::Play, Screen::Sequencer, Screen::XyPad};
   beforeLeaveSequencer();
-  Screen ringScreen = g_screen;
-  if (ringScreen == Screen::Transport) {
-    ringScreen = Screen::Play;
-  }
   int idx = 0;
-  for (int i = 0; i < 3; ++i) {
-    if (kRing[i] == ringScreen) {
+  bool found = false;
+  for (int i = 0; i < 4; ++i) {
+    if (kRing[i] == g_screen) {
       idx = i;
+      found = true;
       break;
     }
   }
-  idx = (idx + direction + 300) % 3;
+  if (!found) {
+    idx = 1;
+  }
+  idx = (idx + direction + 400) % 4;
   g_screen = kRing[idx];
   s_xyMidiSentX = 255;
   s_xyMidiSentY = 255;
   switch (g_screen) {
+    case Screen::Transport:
+      drawTransportSurface();
+      break;
     case Screen::Play:
       drawPlaySurface();
       break;
@@ -918,6 +1004,7 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
   }
 
   if (touchCount >= 2) {
+    wasTouchActive = true;
     layoutBottomBezels(w, h);
     int sel = -1;
     int pad = -1;
@@ -941,7 +1028,10 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
       s_xyCombo.ly = dm.y;
     }
     wasTouchActive = true;
-    drawXyPadSurface();
+    if (!s_xyTwoFingerSurfaceDrawn) {
+      drawXyPadSurface();
+      s_xyTwoFingerSurfaceDrawn = true;
+    }
     return;
   }
 
@@ -949,10 +1039,16 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
 
   if (touchCount == 1) {
     const auto& d = M5.Touch.getDetail(0);
-    if (pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
-        pointInRect(d.x, d.y, g_bezelFwd)) {
-      drawXyPadSurface();
+    const bool bezel = pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
+                       pointInRect(d.x, d.y, g_bezelFwd);
+    if (bezel) {
+      if (s_xyTouchZone == 1) {
+        drawXyPadSurface();
+      }
+      s_xyTouchZone = 0;
     } else if (hitTestXyPad(d.x, d.y)) {
+      const uint8_t ox = g_xyValX;
+      const uint8_t oy = g_xyValY;
       uint8_t vx, vy;
       xyMapTouchToVals(d.x, d.y, &vx, &vy);
       g_xyValX = vx;
@@ -969,9 +1065,17 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
           s_xyMidiSentY = vy;
         }
       }
-      drawXyPadSurface();
+      if (s_xyTouchZone != 1) {
+        drawXyPadSurface();
+      } else if (vx != ox || vy != oy) {
+        drawXyCrosshairOnly();
+      }
+      s_xyTouchZone = 1;
     } else {
-      drawXyPadSurface();
+      if (s_xyTouchZone == 1) {
+        drawXyPadSurface();
+      }
+      s_xyTouchZone = 0;
     }
     wasTouchActive = true;
     return;
@@ -979,6 +1083,8 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
 
   if (touchCount == 0) {
     if (!wasTouchActive) return;
+    s_xyTouchZone = -1;
+    s_xyTwoFingerSurfaceDrawn = false;
     wasTouchActive = false;
     if (suppressNextPlayTap) {
       suppressNextPlayTap = false;
@@ -1036,11 +1142,32 @@ bool tryEnterSettingsTwoFingerLong(uint8_t touchCount, int w, int h) {
   if (r.enteredSettings) {
     suppressNextPlayTap = r.suppressNextPlayTap;
     g_screen = Screen::Settings;
-    g_settingsRow = 0;
-    g_factoryResetConfirmArmed = false;
+    resetSettingsNav();
     return true;
   }
   return false;
+}
+
+int hitTestSeqChordDrop(int px, int py) {
+  if (s_seqChordDropStep < 0 || s_seqChordDropStep >= 16) return -1;
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  constexpr int items = 10;
+  const int rowH = max(16, (h - kBezelBarH - 4) / items);
+  const int totalH = rowH * items;
+  const int dropW = 72;
+  const Rect& anchor = g_seqCellRects[s_seqChordDropStep];
+  int dx = anchor.x + anchor.w / 2 - dropW / 2;
+  if (dx < 2) dx = 2;
+  if (dx + dropW > w - 2) dx = w - 2 - dropW;
+  int dy = (h - kBezelBarH - totalH) / 2;
+  if (dy < 2) dy = 2;
+  for (int r = 0; r < items; ++r) {
+    if (px >= dx && px < dx + dropW && py >= dy + r * rowH && py < dy + (r + 1) * rowH) {
+      return r;
+    }
+  }
+  return -1;
 }
 
 void processSequencerTouch(uint8_t touchCount, int w, int h) {
@@ -1064,48 +1191,63 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
     }
   }
 
+  bool selectDown = false;
+  for (uint8_t i = 0; i < touchCount; ++i) {
+    const auto& d = M5.Touch.getDetail(i);
+    if (d.isPressed() && pointInRect(d.x, d.y, g_bezelSelect)) selectDown = true;
+  }
   if (touchCount >= 2) {
-    bool sel = false;
-    for (uint8_t i = 0; i < touchCount; ++i) {
-      const auto& d = M5.Touch.getDetail(i);
-      if (!d.isPressed()) continue;
-      if (pointInRect(d.x, d.y, g_bezelSelect)) sel = true;
-    }
+    wasTouchActive = true;
     s_seqComboTab = -1;
-    if (sel) {
+    if (selectDown) {
       for (uint8_t i = 0; i < touchCount; ++i) {
         const auto& d = M5.Touch.getDetail(i);
         if (!d.isPressed()) continue;
         const int th = hitTestSeqTab(d.x, d.y);
-        if (th >= 0) {
-          s_seqComboTab = th;
-          break;
-        }
+        if (th >= 0) { s_seqComboTab = th; break; }
       }
     }
-    wasTouchActive = true;
-    drawSequencerSurface(-1);
+    s_wasSeqMultiFinger = true;
     return;
+  }
+
+  if (s_wasSeqMultiFinger) {
+    s_wasSeqMultiFinger = false;
   }
 
   if (touchCount == 1) {
     const auto& d = M5.Touch.getDetail(0);
     if (g_seqTool != SeqTool::None && g_seqSliderActive &&
         pointInRect(d.x, d.y, g_seqSliderPanel)) {
+      const bool wasDragging = g_seqDraggingSlider;
       g_seqDraggingSlider = true;
+      const uint8_t svBefore = seqSliderDisplayedValue();
       seqSetSliderValueFromX(d.x);
-      drawSequencerSurface();
+      const uint8_t svAfter = seqSliderDisplayedValue();
+      if (!wasDragging || svBefore != svAfter) {
+        drawSequencerSurface();
+      }
       wasTouchActive = true;
       return;
     }
-    const int ht = hitTestSeq(d.x, d.y);
-    if (pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
-        pointInRect(d.x, d.y, g_bezelFwd)) {
-      drawSequencerSurface();
-    } else if (ht >= 0) {
-      drawSequencerSurface(ht);
-    } else {
-      drawSequencerSurface();
+
+    const uint32_t now = millis();
+    if (s_seqChordDropStep < 0) {
+      const int ht = hitTestSeq(d.x, d.y);
+      if (ht >= 0 && !(s_seqSelectHeld && ht < 4)) {
+        if (s_seqStepDownIdx != ht) {
+          s_seqStepDownIdx = ht;
+          s_seqStepDownMs = now;
+          s_seqLongPressHandled = false;
+        }
+        if (!s_seqLongPressHandled && now - s_seqStepDownMs >= kSeqLongPressMs) {
+          g_seqPattern[g_seqLane][ht] = kSeqRest;
+          s_seqLongPressHandled = true;
+          drawSequencerSurface();
+        }
+      } else {
+        s_seqStepDownIdx = -1;
+      }
     }
     wasTouchActive = true;
     return;
@@ -1113,6 +1255,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
 
   if (touchCount == 0) {
     if (!wasTouchActive) return;
+    s_lastSeqPreviewCell = -9999;
+    s_wasSeqMultiFinger = false;
     wasTouchActive = false;
     if (suppressNextPlayTap) {
       suppressNextPlayTap = false;
@@ -1129,24 +1273,6 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
 
     const int hx = g_lastTouchX;
     const int hy = g_lastTouchY;
-    if (pointInRect(hx, hy, g_bezelBack)) {
-      s_seqGestureMaxTouches = 0;
-      s_seqComboTab = -1;
-      navigateMainRing(-1);
-      return;
-    }
-    if (pointInRect(hx, hy, g_bezelFwd)) {
-      s_seqGestureMaxTouches = 0;
-      s_seqComboTab = -1;
-      navigateMainRing(1);
-      return;
-    }
-    if (pointInRect(hx, hy, g_bezelSelect)) {
-      s_seqGestureMaxTouches = 0;
-      s_seqComboTab = -1;
-      drawSequencerSurface();
-      return;
-    }
 
     if (s_seqGestureMaxTouches >= 2 && s_seqComboTab >= 0) {
       uint8_t ch = g_seqMidiCh[s_seqComboTab];
@@ -1158,31 +1284,81 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
       drawSequencerSurface();
       return;
     }
+
+    if (pointInRect(hx, hy, g_bezelBack)) {
+      s_seqGestureMaxTouches = 0;
+      s_seqComboTab = -1;
+      s_seqChordDropStep = -1;
+      s_seqSelectHeld = false;
+      navigateMainRing(-1);
+      return;
+    }
+    if (pointInRect(hx, hy, g_bezelFwd)) {
+      s_seqGestureMaxTouches = 0;
+      s_seqComboTab = -1;
+      s_seqChordDropStep = -1;
+      s_seqSelectHeld = false;
+      navigateMainRing(1);
+      return;
+    }
+    if (pointInRect(hx, hy, g_bezelSelect)) {
+      const uint8_t maxT = s_seqGestureMaxTouches;
+      s_seqGestureMaxTouches = 0;
+      s_seqComboTab = -1;
+      s_seqChordDropStep = -1;
+      if (maxT <= 1) {
+        s_seqSelectHeld = !s_seqSelectHeld;
+      }
+      drawSequencerSurface();
+      return;
+    }
+
     s_seqGestureMaxTouches = 0;
     s_seqComboTab = -1;
 
-    const int toolHit = hitTestSeqTool(hx, hy);
-    if (toolHit >= 0) {
-      static const SeqTool kMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
-                                      SeqTool::ChordRand};
-      const SeqTool tapped = kMap[toolHit];
-      if (g_seqTool == tapped) {
-        g_seqTool = SeqTool::None;
-        g_seqProbFocusStep = -1;
-      } else {
-        g_seqTool = tapped;
-        if (tapped != SeqTool::StepProb) {
-          g_seqProbFocusStep = -1;
-        }
+    if (s_seqChordDropStep >= 0) {
+      const int pick = hitTestSeqChordDrop(hx, hy);
+      if (pick >= 0) {
+        uint8_t v;
+        if (pick < 8) v = static_cast<uint8_t>(pick);
+        else if (pick == 8) v = kSeqTie;
+        else v = kSeqRest;
+        g_seqPattern[g_seqLane][s_seqChordDropStep] = v;
       }
-      seqExtrasSave(&g_seqExtras);
+      s_seqChordDropStep = -1;
       drawSequencerSurface();
       return;
+    }
+
+    if (s_seqSelectHeld) {
+      const int ht = hitTestSeq(hx, hy);
+      if (ht >= 0 && ht < 4) {
+        static const SeqTool kMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
+                                        SeqTool::ChordRand};
+        const SeqTool tapped = kMap[ht];
+        if (g_seqTool == tapped) {
+          g_seqTool = SeqTool::None;
+          g_seqProbFocusStep = -1;
+        } else {
+          g_seqTool = tapped;
+          if (tapped != SeqTool::StepProb) g_seqProbFocusStep = -1;
+        }
+        seqExtrasSave(&g_seqExtras);
+        drawSequencerSurface();
+        return;
+      }
     }
 
     const int tabHit = hitTestSeqTab(hx, hy);
     if (tabHit >= 0) {
       g_seqLane = static_cast<uint8_t>(tabHit);
+      drawSequencerSurface();
+      return;
+    }
+
+    if (s_seqLongPressHandled) {
+      s_seqStepDownIdx = -1;
+      s_seqLongPressHandled = false;
       drawSequencerSurface();
       return;
     }
@@ -1195,10 +1371,11 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
         drawSequencerSurface();
         return;
       }
-      seqCycleStep(cell);
+      s_seqChordDropStep = cell;
       drawSequencerSurface();
       return;
     }
+    s_seqStepDownIdx = -1;
     drawSequencerSurface();
   }
 }
@@ -1237,9 +1414,6 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
     if (pointInRect(d.x, d.y, g_keyRect)) keyDown = true;
     if (hitTestPlay(d.x, d.y) == 0) pad0Down = true;
   }
-  if (keyDown && selectDown) {
-    g_comboKeyPickerLatch = true;
-  }
 
   s_drawPlayVoicingShift = (touchCount >= 2 && selectDown && pad0Down && !keyDown);
   if (touchCount >= 2) {
@@ -1257,22 +1431,44 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
       const int ht = hitTestPlay(d.x, d.y);
       if (ht >= 0) ch = ht;
     }
-    drawPlaySurface(ch, fk);
+    const bool vo = s_drawPlayVoicingShift;
+    if (ch != s_playTouchDrawChord || fk != s_playTouchDrawOnKey || vo != s_playTouchDrawVoicing) {
+      s_playTouchDrawChord = ch;
+      s_playTouchDrawOnKey = fk;
+      s_playTouchDrawVoicing = vo;
+    }
     return;
   }
 
   if (touchCount == 1) {
     const auto& d = M5.Touch.getDetail(0);
     const int ht = hitTestPlay(d.x, d.y);
+    int dc = -100;
+    bool dok = false;
     if (pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
         pointInRect(d.x, d.y, g_bezelFwd)) {
-      drawPlaySurface();
+      dc = -100;
+      dok = false;
     } else if (ht == -2) {
-      drawPlaySurface(-100, true);
+      dc = -100;
+      dok = true;
     } else if (ht >= 0) {
-      drawPlaySurface(ht, false);
+      dc = ht;
+      dok = false;
     } else {
-      drawPlaySurface();
+      dc = -100;
+      dok = false;
+    }
+    if (dc != s_playTouchDrawChord || dok != s_playTouchDrawOnKey || s_playTouchDrawVoicing) {
+      s_playTouchDrawChord = dc;
+      s_playTouchDrawOnKey = dok;
+      s_playTouchDrawVoicing = false;
+      const bool onBezel = pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
+                           pointInRect(d.x, d.y, g_bezelFwd);
+      // Avoid full-screen redraw while holding chord/key/bezel — redraw on release only.
+      if (!onBezel && ht != -2 && ht < 0) {
+        drawPlaySurface();
+      }
     }
     wasTouchActive = true;
     return;
@@ -1280,23 +1476,19 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
 
   if (touchCount == 0) {
     if (!wasTouchActive) return;
+    const uint8_t gestureMax = s_playGestureMaxTouches;
+    const bool hadHighlight = (s_playTouchDrawChord >= 0 ||
+                               s_playTouchDrawOnKey ||
+                               s_playTouchDrawVoicing);
+    s_playTouchDrawChord = -100;
+    s_playTouchDrawOnKey = false;
+    s_playTouchDrawVoicing = false;
     wasTouchActive = false;
     if (suppressNextPlayTap) {
       suppressNextPlayTap = false;
-      g_comboKeyPickerLatch = false;
-      drawPlaySurface();
-      return;
-    }
-
-    const bool openKeyPicker = g_comboKeyPickerLatch;
-    g_comboKeyPickerLatch = false;
-
-    if (openKeyPicker) {
-      g_pickTonic = g_model.keyIndex;
-      g_pickMode = g_model.mode;
-      g_screen = Screen::KeyPicker;
-      drawKeyPicker();
-      s_playGestureMaxTouches = 0;
+      if (hadHighlight) {
+        playRedrawClearFingerHighlight();
+      }
       return;
     }
 
@@ -1319,20 +1511,33 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
     const int hx = g_lastTouchX;
     const int hy = g_lastTouchY;
     if (pointInRect(hx, hy, g_bezelBack)) {
+      s_playSelectLatched = false;
       navigateMainRing(-1);
       return;
     }
     if (pointInRect(hx, hy, g_bezelFwd)) {
+      s_playSelectLatched = false;
       navigateMainRing(1);
       return;
     }
     if (pointInRect(hx, hy, g_bezelSelect)) {
+      if (gestureMax <= 1) {
+        s_playSelectLatched = !s_playSelectLatched;
+      }
       drawPlaySurface();
       return;
     }
 
     const int hit = hitTestPlay(hx, hy);
     if (hit == -2) {
+      if (s_playSelectLatched) {
+        g_pickTonic = g_model.keyIndex;
+        g_pickMode = g_model.mode;
+        g_screen = Screen::KeyPicker;
+        s_playSelectLatched = false;
+        drawKeyPicker();
+        return;
+      }
       if (g_model.heartAvailable) {
         g_model.nextSurprise();
         g_model.consumeHeart();
@@ -1342,17 +1547,19 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
         g_model.registerPlay();
       }
       transportSetLiveChord(-1);
-      drawPlaySurface();
+      playRedrawAfterOutlineChange();
       return;
     }
     if (hit >= 0 && hit < ChordModel::kSurroundCount) {
       g_lastPlayedOutline = hit;
       g_model.registerPlay();
       transportSetLiveChord(static_cast<int8_t>(hit));
-      drawPlaySurface();
+      playRedrawAfterOutlineChange();
       return;
     }
-    drawPlaySurface();
+    if (hadHighlight) {
+      playRedrawClearFingerHighlight();
+    }
   }
 }
 
@@ -1363,6 +1570,7 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
 void drawKeyPicker() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
+  M5.Display.startWrite();
   M5.Display.fillScreen(g_uiPalette.bg);
 
   M5.Display.setFont(nullptr);
@@ -1411,6 +1619,7 @@ void drawKeyPicker() {
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
   M5.Display.setTextDatum(bottom_center);
   M5.Display.drawString("Pick tonic, mode, then Done", w / 2, btnY - 4);
+  M5.Display.endWrite();
 }
 
 void processKeyPickerTouch(uint8_t touchCount, int w, int h) {
@@ -1551,6 +1760,7 @@ void layoutProjectNameButtons(int w, int h) {
 void drawProjectNameEdit() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
+  M5.Display.startWrite();
   M5.Display.fillScreen(g_uiPalette.bg);
   M5.Display.setFont(nullptr);
   M5.Display.setTextDatum(top_center);
@@ -1585,6 +1795,7 @@ void drawProjectNameEdit() {
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
   M5.Display.drawString("BACK/FWD=cursor SEL=char", w / 2, g_peSave.y - 10);
   drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 void processProjectNameEditTouch(uint8_t touchCount, int w, int h) {
@@ -1653,6 +1864,7 @@ void processProjectNameEditTouch(uint8_t touchCount, int w, int h) {
 void drawSdProjectPick() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
+  M5.Display.startWrite();
   M5.Display.fillScreen(g_uiPalette.bg);
   M5.Display.setFont(nullptr);
   M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
@@ -1668,6 +1880,7 @@ void drawSdProjectPick() {
   }
   g_sdPickCancel = {6, h - 44, w - 12, 36};
   drawRoundedButton(g_sdPickCancel, g_uiPalette.keyPickDone, "Cancel", 2);
+  M5.Display.endWrite();
 }
 
 void processSdProjectPickTouch(uint8_t touchCount, int w, int h) {
@@ -1706,7 +1919,8 @@ void processSdProjectPickTouch(uint8_t touchCount, int w, int h) {
 void drawTransportSurface() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
+  M5.Display.startWrite();
+  M5.Display.fillRect(0, 0, w, h - kBezelBarH, g_uiPalette.bg);
   layoutBottomBezels(w, h);
 
   M5.Display.setFont(nullptr);
@@ -1716,7 +1930,7 @@ void drawTransportSurface() {
   M5.Display.drawString("Transport", w / 2, 4);
   M5.Display.setTextSize(1);
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("SELECT+swipe: up / down / left / right", w / 2, 22);
+  M5.Display.drawString("BACK/FWD: Transport / Pad / Seq / XY", w / 2, 22);
 
   constexpr int margin = 8;
   constexpr int row1y = 42;
@@ -1766,6 +1980,7 @@ void drawTransportSurface() {
   M5.Display.drawString(st, w / 2, row3y + smallH + 6);
 
   drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 void processTransportTouch(uint8_t touchCount, int w, int h) {
@@ -1785,7 +2000,6 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
       }
     }
     wasTouchActive = true;
-    drawTransportSurface();
     return;
   }
 
@@ -1850,337 +2064,789 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
   drawTransportSurface();
 }
 
-void drawButton(int x, int y, int w, int h, const char* label, bool active) {
-  uint16_t bg = active ? g_uiPalette.settingsBtnActive : g_uiPalette.settingsBtnIdle;
-  M5.Display.fillRoundRect(x, y, w, h, 10, bg);
-  M5.Display.drawRoundRect(x, y, w, h, 10, g_uiPalette.settingsBtnBorder);
-  M5.Display.setTextColor(TFT_WHITE, bg);
-  M5.Display.setTextDatum(middle_center);
-  M5.Display.drawString(label, x + w / 2, y + h / 2);
+// ----- Settings UI (sections, large type, dropdowns, bottom bezel bar) -----
+
+static const uint8_t kSetMidi[] = {0, 1, 2, 3, 4};
+static const uint8_t kSetDisplay[] = {5, 8, 9, 7};
+static const uint8_t kSetSeq[] = {6, 10, 11, 12};
+static const uint8_t kSetStorage[] = {13, 14, 15, 16};
+
+static int settingsPanelRowCount(SettingsPanel p) {
+  switch (p) {
+    case SettingsPanel::Midi:
+      return 5;
+    case SettingsPanel::Display:
+      return 4;
+    case SettingsPanel::SeqArp:
+      return 4;
+    case SettingsPanel::Storage:
+      return 4;
+    default:
+      return 0;
+  }
 }
 
-void drawSettingsUi(int activeZone) {
-  const int w = M5.Display.width();
-  const int h = M5.Display.height();
-  M5.Display.fillScreen(g_uiPalette.bg);
-
-  M5.Display.setTextColor(g_uiPalette.settingsHeader, g_uiPalette.bg);
-  M5.Display.setTextDatum(top_center);
-  M5.Display.setTextSize(2);
-  M5.Display.drawString("Settings", w / 2, 6);
-  M5.Display.setTextSize(1);
-
-  const int rowY0 = 16;
-  const int rowH = 12;
-
-  auto rowColor = [&](int row) {
-    return row == g_settingsRow ? g_uiPalette.rowSelect : g_uiPalette.rowNormal;
-  };
-
-  char line[56];
-  snprintf(line, sizeof(line), " MIDI out channel:  %u",
-           (unsigned)g_settings.midiOutChannel);
-  M5.Display.setTextColor(rowColor(0), g_uiPalette.bg);
-  M5.Display.setTextDatum(middle_left);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 0);
-
-  if (g_settings.midiInChannel == 0) {
-    snprintf(line, sizeof(line), " MIDI in:  OMNI (all)");
-  } else {
-    snprintf(line, sizeof(line), " MIDI in channel:  %u",
-             (unsigned)g_settings.midiInChannel);
+static uint8_t settingsPanelRowId(SettingsPanel p, int idx) {
+  const uint8_t* t = nullptr;
+  int c = 0;
+  switch (p) {
+    case SettingsPanel::Midi:
+      t = kSetMidi;
+      c = 5;
+      break;
+    case SettingsPanel::Display:
+      t = kSetDisplay;
+      c = 4;
+      break;
+    case SettingsPanel::SeqArp:
+      t = kSetSeq;
+      c = 4;
+      break;
+    case SettingsPanel::Storage:
+      t = kSetStorage;
+      c = 4;
+      break;
+    default:
+      return 0;
   }
-  M5.Display.setTextColor(rowColor(1), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 1);
-
-  snprintf(line, sizeof(line), " MIDI transport send:  %s",
-           midiTransportRouteLabel(g_settings.midiTransportSend));
-  M5.Display.setTextColor(rowColor(2), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 2);
-
-  snprintf(line, sizeof(line), " MIDI transport receive:  %s",
-           midiTransportRouteLabel(g_settings.midiTransportReceive));
-  M5.Display.setTextColor(rowColor(3), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 3);
-
-  snprintf(line, sizeof(line), " MIDI clock:  %s",
-           midiClockSourceLabel(g_settings.midiClockSource));
-  M5.Display.setTextColor(rowColor(4), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 4);
-
-  snprintf(line, sizeof(line), " Brightness:  %u%%",
-           (unsigned)g_settings.brightnessPercent);
-  M5.Display.setTextColor(rowColor(5), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 5);
-
-  snprintf(line, sizeof(line), " Note velocity:  %u",
-           (unsigned)g_settings.outputVelocity);
-  M5.Display.setTextColor(rowColor(6), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 6);
-
-  snprintf(line, sizeof(line), " Build: %s", M5CHORD_BUILD_STAMP);
-  M5.Display.setTextColor(rowColor(7), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 7);
-
-  snprintf(line, sizeof(line), " Color theme:  %s", uiThemeName(g_uiTheme));
-  M5.Display.setTextColor(rowColor(8), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 8);
-
-  snprintf(line, sizeof(line), " Click volume:  %u%%", (unsigned)g_clickVolumePercent);
-  M5.Display.setTextColor(rowColor(9), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 9);
-
-  snprintf(line, sizeof(line), " Arpeggiator:  %s",
-           arpeggiatorModeLabel(g_settings.arpeggiatorMode));
-  M5.Display.setTextColor(rowColor(10), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 10);
-
-  snprintf(line, sizeof(line), " BPM (project):  %u", (unsigned)g_projectBpm);
-  M5.Display.setTextColor(rowColor(11), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 11);
-
-  if (g_projectCustomName[0] != '\0') {
-    snprintf(line, sizeof(line), " Project folder:  %.18s", g_projectCustomName);
-  } else {
-    snprintf(line, sizeof(line), " Project folder:  (auto)");
-  }
-  M5.Display.setTextColor(rowColor(12), g_uiPalette.bg);
-  M5.Display.drawString(line, 8, rowY0 + rowH * 12);
-
-  if (g_factoryResetConfirmArmed && g_settingsRow == 13) {
-    M5.Display.setTextColor(g_uiPalette.danger, g_uiPalette.bg);
-    M5.Display.drawString(" ! Factory reset  SELECT again", 8, rowY0 + rowH * 13);
-  } else {
-    M5.Display.setTextColor(rowColor(13), g_uiPalette.bg);
-    M5.Display.drawString(" Factory reset", 8, rowY0 + rowH * 13);
-  }
-
-  M5.Display.setTextColor(rowColor(14), g_uiPalette.bg);
-  M5.Display.drawString(" Backup SD (global+project)", 8, rowY0 + rowH * 14);
-
-  M5.Display.setTextColor(rowColor(15), g_uiPalette.bg);
-  M5.Display.drawString(" Restore SD (global+project)", 8, rowY0 + rowH * 15);
-
-  M5.Display.setTextColor(rowColor(16), g_uiPalette.bg);
-  M5.Display.drawString(" Save & exit", 8, rowY0 + rowH * 16);
-
-  if (g_settingsFeedback[0] != '\0') {
-    M5.Display.setTextDatum(top_center);
-    M5.Display.setTextColor(g_uiPalette.feedback, g_uiPalette.bg);
-    M5.Display.drawString(g_settingsFeedback, w / 2, rowY0 + rowH * 17);
-  }
-
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.setTextDatum(top_center);
-  M5.Display.drawString("BACK/FWD = row  SELECT = change", w / 2,
-                          rowY0 + rowH * 17 + 10);
-
-  const int buttonBandHeight = h / 5;
-  const int btnY = h - buttonBandHeight + 8;
-  const int btnH = buttonBandHeight - 16;
-  const int zoneW = w / 3;
-  drawButton(6, btnY, zoneW - 12, btnH, "BACK", activeZone == 0);
-  drawButton(zoneW + 6, btnY, zoneW - 12, btnH, "SELECT", activeZone == 1);
-  drawButton(zoneW * 2 + 6, btnY, zoneW - 12, btnH, "FWD", activeZone == 2);
-  M5.Display.setTextSize(2);
+  if (idx < 0 || idx >= c) return t[0];
+  return t[idx];
 }
 
-void settingsMoveRow(int delta) {
-  const int n = static_cast<int>(AppSettings::kRowCount);
-  int r = g_settingsRow + delta;
-  r %= n;
-  if (r < 0) r += n;
-  g_settingsRow = r;
-  g_factoryResetConfirmArmed = false;
-  g_settingsFeedback[0] = '\0';
-  drawSettingsUi();
+static void settingsSyncRowFromCursor() {
+  if (g_settingsPanel == SettingsPanel::Menu) return;
+  int n = settingsPanelRowCount(g_settingsPanel);
+  int i = g_settingsCursorRow;
+  if (i < 0) i = 0;
+  if (i >= n) i = n - 1;
+  g_settingsRow = settingsPanelRowId(g_settingsPanel, i);
 }
 
-void settingsApplySelect() {
-  const int row = g_settingsRow;
-  if (row != 13) {
-    g_factoryResetConfirmArmed = false;
+static void settingsEnsureListScroll(int nRows, int rowH, int contentTop, int contentBottom) {
+  int visible = (contentBottom - contentTop) / rowH;
+  if (visible < 1) visible = 1;
+  if (g_settingsCursorRow < g_settingsListScroll) {
+    g_settingsListScroll = g_settingsCursorRow;
   }
+  if (g_settingsCursorRow >= g_settingsListScroll + visible) {
+    g_settingsListScroll = g_settingsCursorRow - visible + 1;
+  }
+  int maxScroll = max(0, nRows - visible);
+  if (g_settingsListScroll > maxScroll) g_settingsListScroll = maxScroll;
+  if (g_settingsListScroll < 0) g_settingsListScroll = 0;
+}
 
-  switch (row) {
+static void settingsMoveCursorInSection(int delta, int h) {
+  int n = settingsPanelRowCount(g_settingsPanel);
+  if (n <= 0) return;
+  g_settingsCursorRow = (g_settingsCursorRow + delta + n * 100) % n;
+  settingsSyncRowFromCursor();
+  constexpr int kRowH = 36;
+  constexpr int kTop = 42;
+  int fb = (g_settingsFeedback[0] != '\0') ? 20 : 4;
+  int contentBottom = h - kBezelBarH - fb;
+  settingsEnsureListScroll(n, kRowH, kTop, contentBottom);
+}
+
+static int settingsDropdownOptionCount(int8_t rid) {
+  switch (rid) {
     case 0:
-      g_settings.cycleMidiOut();
+      return 16;
+    case 1:
+      return 17;
+    case 2:
+    case 3:
+    case 4:
+      return 4;
+    case 5:
+      return 10;
+    case 6:
+      return 9;
+    case 8:
+      return kUiThemeCount;
+    case 9:
+      return 11;
+    case 10:
+      return kArpeggiatorModeCount;
+    case 11:
+      return 33;
+    case 13:
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+static int settingsDropVisibleRows(int h) {
+  const int rowH = 20;
+  const int maxH = h - kBezelBarH - 52;
+  return max(3, maxH / rowH);
+}
+
+static int settingsDropdownScrollForCurrent(int8_t rid, int h) {
+  int cnt = settingsDropdownOptionCount(rid);
+  if (cnt <= 0) return 0;
+  int idx = 0;
+  switch (rid) {
+    case 0:
+      idx = g_settings.midiOutChannel - 1;
       break;
     case 1:
-      g_settings.cycleMidiIn();
+      idx = (g_settings.midiInChannel == 0) ? 0 : g_settings.midiInChannel;
       break;
     case 2:
-      g_settings.cycleMidiTransportSend();
+      idx = g_settings.midiTransportSend;
+      break;
+    case 3:
+      idx = g_settings.midiTransportReceive;
+      break;
+    case 4:
+      idx = g_settings.midiClockSource;
+      break;
+    case 5:
+      idx = static_cast<int>(g_settings.brightnessPercent) / 10 - 1;
+      if (idx < 0) idx = 0;
+      if (idx > 9) idx = 9;
+      break;
+    case 6: {
+      uint8_t v = g_settings.outputVelocity;
+      if (v <= 40) {
+        idx = 0;
+      } else if (v >= 120) {
+        idx = 8;
+      } else {
+        idx = (static_cast<int>(v) - 40 + 5) / 10;
+        if (idx > 8) idx = 8;
+      }
+      break;
+    }
+    case 8:
+      idx = g_uiTheme;
+      break;
+    case 9:
+      idx = static_cast<int>(g_clickVolumePercent) / 10;
+      if (idx > 10) idx = 10;
+      break;
+    case 10:
+      idx = g_settings.arpeggiatorMode;
+      break;
+    case 11:
+      idx = (static_cast<int>(g_projectBpm) - 40) / 5;
+      if (idx < 0) idx = 0;
+      if (idx > 32) idx = 32;
+      break;
+    default:
+      return 0;
+  }
+  int vis = settingsDropVisibleRows(h);
+  int scroll = idx - vis / 2;
+  if (scroll < 0) scroll = 0;
+  int maxScroll = max(0, cnt - vis);
+  if (scroll > maxScroll) scroll = maxScroll;
+  return scroll;
+}
+
+static void settingsFormatDropdownOption(int8_t rid, int opt, char* buf, size_t n) {
+  switch (rid) {
+    case 0:
+      snprintf(buf, n, "Channel %u", static_cast<unsigned>(opt + 1));
+      break;
+    case 1:
+      if (opt == 0) {
+        snprintf(buf, n, "OMNI");
+      } else {
+        snprintf(buf, n, "Channel %u", static_cast<unsigned>(opt));
+      }
+      break;
+    case 2:
+    case 3:
+      snprintf(buf, n, "%s", midiTransportRouteLabel(static_cast<uint8_t>(opt)));
+      break;
+    case 4:
+      snprintf(buf, n, "%s", midiClockSourceLabel(static_cast<uint8_t>(opt)));
+      break;
+    case 5:
+      snprintf(buf, n, "%u%%", static_cast<unsigned>((opt + 1) * 10));
+      break;
+    case 6:
+      snprintf(buf, n, "%u", static_cast<unsigned>(40 + opt * 10));
+      break;
+    case 8:
+      snprintf(buf, n, "%s", uiThemeName(static_cast<uint8_t>(opt)));
+      break;
+    case 9:
+      snprintf(buf, n, "%u%%", static_cast<unsigned>(opt * 10));
+      break;
+    case 10:
+      snprintf(buf, n, "%s", arpeggiatorModeLabel(static_cast<uint8_t>(opt)));
+      break;
+    case 11:
+      snprintf(buf, n, "%u BPM", static_cast<unsigned>(40 + opt * 5));
+      break;
+    case 13:
+      snprintf(buf, n, "%s", opt == 0 ? "Cancel" : "Erase everything");
+      break;
+    default:
+      buf[0] = '\0';
+      break;
+  }
+}
+
+static void settingsRunFactoryReset() {
+  factoryResetAll(g_settings, g_model);
+  memset(g_seqPattern, kSeqRest, sizeof(g_seqPattern));
+  seqExtrasLoad(&g_seqExtras);
+  seqLaneChannelsLoad(g_seqMidiCh);
+  chordVoicingLoad(&g_chordVoicing);
+  g_seqLane = 0;
+  xyMappingLoad(&g_xyCcA, &g_xyCcB);
+  projectBpmLoad(&g_projectBpm);
+  projectCustomNameLoad(g_projectCustomName);
+  lastProjectFolderLoad(g_lastProjectFolder);
+  uiThemeLoad(&g_uiTheme);
+  uiThemeApply(g_uiTheme);
+  transportPrefsLoad();
+  transportApplyClickVolume();
+  g_factoryResetConfirmArmed = false;
+  applyBrightness();
+}
+
+static void settingsRunBackup() {
+  char folder[48];
+  resolveBackupFolder(folder);
+  const uint16_t bm = g_projectBpm;
+  if (sdBackupWriteAll(g_settings, g_model, g_seqPattern, g_seqMidiCh, g_xyCcA, g_xyCcB, bm,
+                       g_chordVoicing, &g_seqExtras, folder)) {
+    lastProjectFolderSave(folder);
+    snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "OK %s/%s", SD_BACKUP_ROOT, folder);
+  } else {
+    snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "SD backup failed");
+  }
+}
+
+static void settingsRunRestoreFlow() {
+  char dirs[8][48];
+  int n = 0;
+  if (!sdBackupListProjects(dirs, 8, &n)) {
+    snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "SD list failed");
+    return;
+  }
+  if (n == 0) {
+    snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "No projects in " SD_BACKUP_ROOT);
+    return;
+  }
+  if (n == 1) {
+    applySdRestoreFromFolder(dirs[0]);
+    return;
+  }
+  g_sdPickCount = n;
+  for (int i = 0; i < n && i < 8; ++i) {
+    strncpy(g_sdPickNames[i], dirs[i], 47);
+    g_sdPickNames[i][47] = '\0';
+  }
+  g_screen = Screen::SdProjectPick;
+  drawSdProjectPick();
+}
+
+static void settingsSaveAndExit() {
+  g_settings.normalize();
+  settingsSave(g_settings);
+  chordStateSave(g_model);
+  seqPatternSave(g_seqPattern);
+  seqExtrasSave(&g_seqExtras);
+  seqLaneChannelsSave(g_seqMidiCh);
+  chordVoicingSave(g_chordVoicing);
+  xyMappingSave(g_xyCcA, g_xyCcB);
+  projectBpmSave(g_projectBpm);
+  projectCustomNameSave(g_projectCustomName);
+  uiThemeSave(g_uiTheme);
+  transportPrefsSave();
+  g_screen = Screen::Play;
+  g_lastAction = "Settings saved";
+  resetSettingsNav();
+  drawPlaySurface();
+}
+
+static void settingsApplyDropdownPick(int8_t rid, int opt) {
+  switch (rid) {
+    case 0:
+      g_settings.midiOutChannel = static_cast<uint8_t>(opt + 1);
+      break;
+    case 1:
+      g_settings.midiInChannel = static_cast<uint8_t>(opt == 0 ? 0 : opt);
+      break;
+    case 2:
+      g_settings.midiTransportSend = static_cast<uint8_t>(opt);
       settingsSave(g_settings);
       break;
     case 3:
-      g_settings.cycleMidiTransportReceive();
+      g_settings.midiTransportReceive = static_cast<uint8_t>(opt);
       settingsSave(g_settings);
       break;
     case 4:
-      g_settings.cycleMidiClockSource();
+      g_settings.midiClockSource = static_cast<uint8_t>(opt);
       settingsSave(g_settings);
       break;
     case 5:
-      g_settings.cycleBrightness();
+      g_settings.brightnessPercent = static_cast<uint8_t>((opt + 1) * 10);
       applyBrightness();
       break;
     case 6:
-      g_settings.cycleVelocity();
+      g_settings.outputVelocity = static_cast<uint8_t>(40 + opt * 10);
       break;
-    case 7:
-      break;
-    case 8: {
-      unsigned next = static_cast<unsigned>(g_uiTheme) + 1U;
-      if (next >= static_cast<unsigned>(kUiThemeCount)) {
-        next = 0;
-      }
-      g_uiTheme = static_cast<uint8_t>(next);
+    case 8:
+      g_uiTheme = static_cast<uint8_t>(opt);
       uiThemeSave(g_uiTheme);
       uiThemeApply(g_uiTheme);
       break;
-    }
-    case 9: {
-      uint16_t v = static_cast<uint16_t>(g_clickVolumePercent) + 10U;
-      if (v > 100U) {
-        v = 0;
-      }
-      g_clickVolumePercent = static_cast<uint8_t>(v);
+    case 9:
+      g_clickVolumePercent = static_cast<uint8_t>(opt * 10);
       transportApplyClickVolume();
       transportPrefsSave();
       break;
-    }
     case 10:
-      g_settings.cycleArpeggiatorMode();
+      g_settings.arpeggiatorMode = static_cast<uint8_t>(opt);
       settingsSave(g_settings);
       break;
     case 11:
-      g_projectBpm += 5;
-      if (g_projectBpm > 200) {
-        g_projectBpm = 40;
-      }
+      g_projectBpm = static_cast<uint16_t>(40 + opt * 5);
       projectBpmSave(g_projectBpm);
       break;
-    case 12:
-      openProjectNameEditor();
-      return;
     case 13:
-      if (g_factoryResetConfirmArmed) {
-        factoryResetAll(g_settings, g_model);
-        memset(g_seqPattern, kSeqRest, sizeof(g_seqPattern));
-        seqExtrasLoad(&g_seqExtras);
-        seqLaneChannelsLoad(g_seqMidiCh);
-        chordVoicingLoad(&g_chordVoicing);
-        g_seqLane = 0;
-        xyMappingLoad(&g_xyCcA, &g_xyCcB);
-        projectBpmLoad(&g_projectBpm);
-        projectCustomNameLoad(g_projectCustomName);
-        lastProjectFolderLoad(g_lastProjectFolder);
-        uiThemeLoad(&g_uiTheme);
-        uiThemeApply(g_uiTheme);
-        transportPrefsLoad();
-        transportApplyClickVolume();
-        g_factoryResetConfirmArmed = false;
-        applyBrightness();
-      } else {
-        g_factoryResetConfirmArmed = true;
+      if (opt == 1) {
+        settingsRunFactoryReset();
       }
-      drawSettingsUi();
-      return;
-    case 14: {
-      char folder[48];
-      resolveBackupFolder(folder);
-      const uint16_t bm = g_projectBpm;
-      if (sdBackupWriteAll(g_settings, g_model, g_seqPattern, g_seqMidiCh, g_xyCcA, g_xyCcB, bm,
-                           g_chordVoicing, &g_seqExtras, folder)) {
-        lastProjectFolderSave(folder);
-        snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "OK %s/%s", SD_BACKUP_ROOT,
-                 folder);
-      } else {
-        snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "SD backup failed");
-      }
-      drawSettingsUi();
-      return;
-    }
-    case 15: {
-      char dirs[8][48];
-      int n = 0;
-      if (!sdBackupListProjects(dirs, 8, &n)) {
-        snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "SD list failed");
-        drawSettingsUi();
-        return;
-      }
-      if (n == 0) {
-        snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "No projects in " SD_BACKUP_ROOT);
-        drawSettingsUi();
-        return;
-      }
-      if (n == 1) {
-        applySdRestoreFromFolder(dirs[0]);
-        drawSettingsUi();
-        return;
-      }
-      g_sdPickCount = n;
-      for (int i = 0; i < n && i < 8; ++i) {
-        strncpy(g_sdPickNames[i], dirs[i], 47);
-        g_sdPickNames[i][47] = '\0';
-      }
-      g_screen = Screen::SdProjectPick;
-      drawSdProjectPick();
-      return;
-    }
-    case 16:
-      g_settings.normalize();
-      settingsSave(g_settings);
-      chordStateSave(g_model);
-      seqPatternSave(g_seqPattern);
-      seqExtrasSave(&g_seqExtras);
-      seqLaneChannelsSave(g_seqMidiCh);
-      chordVoicingSave(g_chordVoicing);
-      xyMappingSave(g_xyCcA, g_xyCcB);
-      projectBpmSave(g_projectBpm);
-      projectCustomNameSave(g_projectCustomName);
-      uiThemeSave(g_uiTheme);
-      transportPrefsSave();
-      g_screen = Screen::Play;
-      g_lastAction = "Settings saved";
-      g_factoryResetConfirmArmed = false;
-      g_settingsFeedback[0] = '\0';
-      drawPlaySurface();
-      return;
+      break;
     default:
       break;
   }
   g_settings.normalize();
-  drawSettingsUi();
+}
+
+static void settingsOpenDropdownOrAction(uint8_t rid, int w, int h) {
+  (void)w;
+  switch (rid) {
+    case 7:
+      return;
+    case 12:
+      openProjectNameEditor();
+      return;
+    case 14:
+      settingsRunBackup();
+      return;
+    case 15:
+      settingsRunRestoreFlow();
+      return;
+    case 16:
+      settingsSaveAndExit();
+      return;
+    default:
+      break;
+  }
+  if (settingsDropdownOptionCount(static_cast<int8_t>(rid)) <= 0) return;
+  s_settingsDropRowId = static_cast<int8_t>(rid);
+  s_settingsDropOptScroll = settingsDropdownScrollForCurrent(s_settingsDropRowId, h);
+}
+
+static void settingsComputeDropdownLayout(int w, int h, int8_t rid, int* outX, int* outY, int* outW,
+                                          int* rowH, int* firstOpt, int* visCount, int* totalOpts) {
+  *totalOpts = settingsDropdownOptionCount(rid);
+  *rowH = 20;
+  *visCount = min(*totalOpts, settingsDropVisibleRows(h));
+  int totalH = (*rowH) * (*visCount);
+  *outW = min(w - 16, 220);
+  *outX = (w - *outW) / 2;
+  *outY = max(36, (h - kBezelBarH - totalH) / 2);
+  *firstOpt = s_settingsDropOptScroll;
+  if (*firstOpt + *visCount > *totalOpts) {
+    *firstOpt = max(0, *totalOpts - *visCount);
+    s_settingsDropOptScroll = *firstOpt;
+  }
+}
+
+static int settingsHitDropdown(int px, int py, int w, int h) {
+  int dx, dy, dw, rh, first, vis, tot;
+  settingsComputeDropdownLayout(w, h, s_settingsDropRowId, &dx, &dy, &dw, &rh, &first, &vis, &tot);
+  if (px < dx || px >= dx + dw || py < dy || py >= dy + vis * rh) return -1;
+  int row = (py - dy) / rh;
+  int idx = first + row;
+  if (idx < 0 || idx >= tot) return -1;
+  return idx;
+}
+
+static int settingsHitMenuCell(int px, int py, int w, int h) {
+  constexpr int kTop = 42;
+  const int gap = 8;
+  int y0 = kTop;
+  int availH = h - kBezelBarH - y0 - gap;
+  int availW = w - 2 * gap;
+  if (availH < 40 || availW < 40) return -1;
+  int cw = (availW - gap) / 2;
+  int ch = (availH - gap) / 2;
+  if (px < gap || py < y0) return -1;
+  int lx = (px - gap) / (cw + gap);
+  int ly = (py - y0) / (ch + gap);
+  if (lx < 0 || lx > 1 || ly < 0 || ly > 1) return -1;
+  int ox = gap + lx * (cw + gap);
+  int oy = y0 + ly * (ch + gap);
+  if (px < ox || px >= ox + cw || py < oy || py >= oy + ch) return -1;
+  return ly * 2 + lx;
+}
+
+static int settingsHitSectionRow(int px, int py, int w, int h) {
+  (void)w;
+  int n = settingsPanelRowCount(g_settingsPanel);
+  if (n <= 0) return -1;
+  constexpr int kRowH = 36;
+  constexpr int kTop = 42;
+  int fb = (g_settingsFeedback[0] != '\0') ? 20 : 4;
+  int contentBottom = h - kBezelBarH - fb;
+  int visible = (contentBottom - kTop) / kRowH;
+  if (visible < 1) return -1;
+  if (py < kTop || py >= kTop + visible * kRowH) return -1;
+  int rel = (py - kTop) / kRowH + g_settingsListScroll;
+  if (rel < 0 || rel >= n) return -1;
+  return rel;
+}
+
+static const char* settingsRowTitle(uint8_t rid) {
+  switch (rid) {
+    case 0:
+      return "MIDI out";
+    case 1:
+      return "MIDI in";
+    case 2:
+      return "Transport send";
+    case 3:
+      return "Transport recv";
+    case 4:
+      return "MIDI clock";
+    case 5:
+      return "Brightness";
+    case 6:
+      return "Velocity";
+    case 7:
+      return "Build";
+    case 8:
+      return "Theme";
+    case 9:
+      return "Click volume";
+    case 10:
+      return "Arpeggiator";
+    case 11:
+      return "BPM";
+    case 12:
+      return "Project folder";
+    case 13:
+      return "Factory reset";
+    case 14:
+      return "Backup SD";
+    case 15:
+      return "Restore SD";
+    case 16:
+      return "Save & exit";
+    default:
+      return "";
+  }
+}
+
+static void settingsRowValueString(uint8_t rid, char* buf, size_t n) {
+  switch (rid) {
+    case 0:
+      snprintf(buf, n, "%u", static_cast<unsigned>(g_settings.midiOutChannel));
+      break;
+    case 1:
+      if (g_settings.midiInChannel == 0) {
+        snprintf(buf, n, "OMNI");
+      } else {
+        snprintf(buf, n, "%u", static_cast<unsigned>(g_settings.midiInChannel));
+      }
+      break;
+    case 2:
+      snprintf(buf, n, "%s", midiTransportRouteLabel(g_settings.midiTransportSend));
+      break;
+    case 3:
+      snprintf(buf, n, "%s", midiTransportRouteLabel(g_settings.midiTransportReceive));
+      break;
+    case 4:
+      snprintf(buf, n, "%s", midiClockSourceLabel(g_settings.midiClockSource));
+      break;
+    case 5:
+      snprintf(buf, n, "%u%%", static_cast<unsigned>(g_settings.brightnessPercent));
+      break;
+    case 6:
+      snprintf(buf, n, "%u", static_cast<unsigned>(g_settings.outputVelocity));
+      break;
+    case 7:
+      snprintf(buf, n, "%s", M5CHORD_BUILD_STAMP);
+      break;
+    case 8:
+      snprintf(buf, n, "%s", uiThemeName(g_uiTheme));
+      break;
+    case 9:
+      snprintf(buf, n, "%u%%", static_cast<unsigned>(g_clickVolumePercent));
+      break;
+    case 10:
+      snprintf(buf, n, "%s", arpeggiatorModeLabel(g_settings.arpeggiatorMode));
+      break;
+    case 11:
+      snprintf(buf, n, "%u", static_cast<unsigned>(g_projectBpm));
+      break;
+    case 12:
+      if (g_projectCustomName[0] != '\0') {
+        snprintf(buf, n, "%.12s", g_projectCustomName);
+      } else {
+        snprintf(buf, n, "(auto)");
+      }
+      break;
+    case 13:
+    case 14:
+    case 15:
+    case 16:
+      buf[0] = '\0';
+      break;
+    default:
+      buf[0] = '\0';
+      break;
+  }
+}
+
+void drawSettingsUi() {
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  layoutBottomBezels(w, h);
+  M5.Display.startWrite();
+  M5.Display.fillScreen(g_uiPalette.bg);
+
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextColor(g_uiPalette.settingsHeader, g_uiPalette.bg);
+  M5.Display.setTextDatum(top_center);
+  M5.Display.setTextSize(2);
+  M5.Display.drawString("Settings", w / 2, 4);
+
+  if (g_settingsPanel == SettingsPanel::Menu) {
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+    M5.Display.drawString("Choose a category", w / 2, 26);
+    constexpr int kTop = 42;
+    const int gap = 8;
+    int y0 = kTop;
+    int availH = h - kBezelBarH - y0 - gap;
+    int availW = w - 2 * gap;
+    int cw = (availW - gap) / 2;
+    int ch = (availH - gap) / 2;
+    const char* labs[4] = {"MIDI", "Display", "Seq/Arp", "SD/Backup"};
+    for (int i = 0; i < 4; ++i) {
+      int lx = i % 2;
+      int ly = i / 2;
+      Rect r = {gap + lx * (cw + gap), y0 + ly * (ch + gap), cw, ch};
+      const uint8_t tsize = (ly == 1) ? static_cast<uint8_t>(1) : static_cast<uint8_t>(2);
+      drawRoundedButton(r, g_uiPalette.panelMuted, labs[i], tsize);
+    }
+  } else {
+    const char* sec = "";
+    switch (g_settingsPanel) {
+      case SettingsPanel::Midi:
+        sec = "MIDI";
+        break;
+      case SettingsPanel::Display:
+        sec = "Display";
+        break;
+      case SettingsPanel::SeqArp:
+        sec = "Seq/Arp";
+        break;
+      case SettingsPanel::Storage:
+        sec = "SD/Backup";
+        break;
+      default:
+        break;
+    }
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+    M5.Display.drawString(sec, w / 2, 26);
+
+    constexpr int kRowH = 36;
+    constexpr int kTop = 42;
+    int fb = (g_settingsFeedback[0] != '\0') ? 20 : 4;
+    int contentBottom = h - kBezelBarH - fb;
+    int n = settingsPanelRowCount(g_settingsPanel);
+    settingsEnsureListScroll(n, kRowH, kTop, contentBottom);
+
+    for (int vi = 0; vi < n; ++vi) {
+      int si = vi - g_settingsListScroll;
+      if (si < 0) continue;
+      int y = kTop + si * kRowH;
+      if (y + kRowH > contentBottom) break;
+      uint8_t rid = settingsPanelRowId(g_settingsPanel, vi);
+      bool sel = (vi == g_settingsCursorRow);
+      M5.Display.setTextSize(3);
+      M5.Display.setTextDatum(middle_left);
+      M5.Display.setTextColor(sel ? g_uiPalette.rowSelect : g_uiPalette.rowNormal, g_uiPalette.bg);
+      char val[40];
+      settingsRowValueString(rid, val, sizeof(val));
+      char line[48];
+      snprintf(line, sizeof(line), "%s", settingsRowTitle(rid));
+      M5.Display.drawString(line, 6, y + kRowH / 2);
+      M5.Display.setTextDatum(middle_right);
+      M5.Display.drawString(val, w - 6, y + kRowH / 2);
+    }
+
+    if (g_settingsFeedback[0] != '\0') {
+      M5.Display.setTextDatum(top_center);
+      M5.Display.setTextSize(1);
+      M5.Display.setTextColor(g_uiPalette.feedback, g_uiPalette.bg);
+      M5.Display.drawString(g_settingsFeedback, w / 2, h - kBezelBarH - 18);
+    }
+  }
+
+  if (s_settingsDropRowId >= 0) {
+    int dx, dy, dww, rh, first, vis, tot;
+    settingsComputeDropdownLayout(w, h, s_settingsDropRowId, &dx, &dy, &dww, &rh, &first, &vis,
+                                  &tot);
+    M5.Display.fillRect(dx - 2, dy - 2, dww + 4, vis * rh + 4, g_uiPalette.bg);
+    M5.Display.drawRect(dx - 2, dy - 2, dww + 4, vis * rh + 4, g_uiPalette.settingsBtnBorder);
+    for (int i = 0; i < vis; ++i) {
+      int opt = first + i;
+      if (opt >= tot) break;
+      Rect dr = {dx, dy + i * rh, dww, rh};
+      char lab[40];
+      settingsFormatDropdownOption(s_settingsDropRowId, opt, lab, sizeof(lab));
+      drawRoundedButton(dr, g_uiPalette.settingsBtnIdle, lab, 1);
+    }
+    M5.Display.setTextSize(1);
+    M5.Display.setTextDatum(top_center);
+    M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+    if (tot > vis) {
+      char hint[24];
+      snprintf(hint, sizeof(hint), "FWD: more  BACK: up/close");
+      M5.Display.drawString(hint, w / 2, max(4, dy - 14));
+    }
+  }
+
+  drawBezelBarStrip();
+  M5.Display.endWrite();
 }
 
 void processSettingsTouch(uint8_t touchCount, int w, int h) {
-  if (touchCount == 0) {
-    if (wasTouchActive) {
-      wasTouchActive = false;
-      auto last = M5.Touch.getDetail();
-      int zone = buttonZoneForPoint(last.x, last.y, w, h);
-      if (zone == 0) {
-        settingsMoveRow(-1);
-      } else if (zone == 2) {
-        settingsMoveRow(1);
-      } else if (zone == 1) {
-        settingsApplySelect();
-      } else {
+  layoutBottomBezels(w, h);
+
+  if (touchCount > 0) {
+    for (uint8_t i = 0; i < touchCount; ++i) {
+      const auto& d = M5.Touch.getDetail(i);
+      if (d.isPressed()) {
+        g_lastTouchX = d.x;
+        g_lastTouchY = d.y;
+      }
+    }
+    wasTouchActive = true;
+    return;
+  }
+
+  if (!wasTouchActive) return;
+  wasTouchActive = false;
+
+  const int hx = g_lastTouchX;
+  const int hy = g_lastTouchY;
+
+  if (pointInRect(hx, hy, g_bezelBack)) {
+    if (s_settingsDropRowId >= 0) {
+      if (s_settingsDropOptScroll > 0) {
+        --s_settingsDropOptScroll;
+        drawSettingsUi();
+        return;
+      }
+      s_settingsDropRowId = -1;
+      drawSettingsUi();
+      return;
+    }
+    if (g_settingsPanel != SettingsPanel::Menu) {
+      g_factoryResetConfirmArmed = false;
+      g_settingsPanel = SettingsPanel::Menu;
+      drawSettingsUi();
+      return;
+    }
+    settingsSaveAndExit();
+    return;
+  }
+
+  if (pointInRect(hx, hy, g_bezelFwd)) {
+    if (s_settingsDropRowId >= 0) {
+      int cnt = settingsDropdownOptionCount(s_settingsDropRowId);
+      int vis = settingsDropVisibleRows(h);
+      if (s_settingsDropOptScroll + vis < cnt) {
+        ++s_settingsDropOptScroll;
+        drawSettingsUi();
+      }
+      return;
+    }
+    if (g_settingsPanel != SettingsPanel::Menu) {
+      settingsMoveCursorInSection(1, h);
+      drawSettingsUi();
+    }
+    return;
+  }
+
+  if (pointInRect(hx, hy, g_bezelSelect)) {
+    if (s_settingsDropRowId >= 0) {
+      drawSettingsUi();
+      return;
+    }
+    if (g_settingsPanel != SettingsPanel::Menu) {
+      settingsSyncRowFromCursor();
+      settingsOpenDropdownOrAction(static_cast<uint8_t>(g_settingsRow), w, h);
+      if (g_screen == Screen::Settings) {
         drawSettingsUi();
       }
     }
     return;
   }
 
-  const auto& d = M5.Touch.getDetail(0);
-  int zone = buttonZoneForPoint(d.x, d.y, w, h);
-  drawSettingsUi(zone);
-  if (!wasTouchActive) {
-    wasTouchActive = true;
-    touchStartMs = millis();
+  if (s_settingsDropRowId >= 0) {
+    int pick = settingsHitDropdown(hx, hy, w, h);
+    if (pick >= 0) {
+      settingsApplyDropdownPick(s_settingsDropRowId, pick);
+      s_settingsDropRowId = -1;
+    } else {
+      s_settingsDropRowId = -1;
+    }
+    drawSettingsUi();
+    return;
   }
+
+  if (g_settingsPanel == SettingsPanel::Menu) {
+    int cell = settingsHitMenuCell(hx, hy, w, h);
+    if (cell == 0) {
+      g_settingsPanel = SettingsPanel::Midi;
+    } else if (cell == 1) {
+      g_settingsPanel = SettingsPanel::Display;
+    } else if (cell == 2) {
+      g_settingsPanel = SettingsPanel::SeqArp;
+    } else if (cell == 3) {
+      g_settingsPanel = SettingsPanel::Storage;
+    } else {
+      drawSettingsUi();
+      return;
+    }
+    g_settingsCursorRow = 0;
+    g_settingsListScroll = 0;
+    g_factoryResetConfirmArmed = false;
+    settingsSyncRowFromCursor();
+    drawSettingsUi();
+    return;
+  }
+
+  int rowHit = settingsHitSectionRow(hx, hy, w, h);
+  if (rowHit >= 0) {
+    g_settingsCursorRow = rowHit;
+    settingsSyncRowFromCursor();
+    settingsOpenDropdownOrAction(static_cast<uint8_t>(g_settingsRow), w, h);
+    if (g_screen == Screen::Settings) {
+      drawSettingsUi();
+    }
+    return;
+  }
+
+  drawSettingsUi();
 }
 
 }  // namespace
@@ -2213,7 +2879,8 @@ void setup() {
   transportInit();
   srand(static_cast<unsigned>(esp_random()));
   (void)sdBackupInit();
-  drawBootSplash();
+  g_model.rebuildChords();
+  drawPlaySurface();
 }
 
 void loop() {
@@ -2251,15 +2918,18 @@ void loop() {
     s_prevCntIn = 255;
   }
 
-  if (pollShiftSwipeNavigate(w, h)) {
-    delay(10);
-    return;
+  if (g_screen == Screen::Play || g_screen == Screen::Sequencer ||
+      g_screen == Screen::XyPad || g_screen == Screen::Transport) {
+    layoutBottomBezels(w, h);
+    if (checkBezelLongPressSettings(touchCount)) {
+      wasTouchActive = false;
+      drawSettingsUi();
+      delay(10);
+      return;
+    }
   }
 
   switch (g_screen) {
-    case Screen::Boot:
-      processBootTouch(touchCount);
-      break;
     case Screen::Play:
       processPlayTouch(touchCount, w, h);
       break;

@@ -3,9 +3,6 @@
 #include <stdint.h>
 
 struct AppSettings {
-  /// Settings rows (MIDI, transport, theme, click vol, arpeggiator, project, …).
-  static constexpr uint8_t kRowCount = 17;
-
   uint8_t midiOutChannel = 1;
   uint8_t midiInChannel = 0;
   /// Where MIDI clock / start / stop / SPP are sent (0=Off, 1=USB, 2=Bluetooth, 3=DIN).

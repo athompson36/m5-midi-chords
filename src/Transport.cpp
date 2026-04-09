@@ -216,7 +216,8 @@ void transportTick(uint32_t nowMs) {
 
   if (s_phase == Phase::Playing) {
     if (g_prefsMetronome) {
-      playClickSound(s_playhead == 0);
+      // Accent downbeat every quarter note (4 steps per beat in the 16-step grid).
+      playClickSound((s_playhead % 4) == 0);
     }
     const uint8_t stepJustPlayed = s_playhead;
     s_audibleStep = stepJustPlayed;
