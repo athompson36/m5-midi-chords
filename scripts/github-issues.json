@@ -1,0 +1,302 @@
+[
+  {
+    "phase": 1,
+    "phase_title": "MIDI OUT foundation (prerequisite for XY, play, sequencer audio)",
+    "title": "[P1] Optional: **MIDI thru** (merge incoming to out) — only after Phase 2 ingress exist…",
+    "body": "## Phase 1 — MIDI OUT foundation (prerequisite for XY, play, sequencer audio)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nOptional: **MIDI thru** (merge incoming to out) — only after Phase 2 ingress exists; gate behind setting.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 1)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] Ingress layer: parse MIDI bytes from **USB** and **BLE** (and stub **DIN** for fut…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nIngress layer: parse MIDI bytes from **USB** and **BLE** (and stub **DIN** for future UART).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] Tag each event with **transport** (Usb / Ble / Din).",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nTag each event with **transport** (`Usb` / `Ble` / `Din`).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] Replace single midiInChannel with **inChUsb**, **inChBle**, **inChDin** (0–16 OMNI…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nReplace single `midiInChannel` with **`inChUsb`**, **`inChBle`**, **`inChDin`** (0–16 OMNI/CH) + Settings UI rows + NVS + SD backup + migration from legacy `inCh`.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **Active note tracking** per channel (and optionally per transport) for chord dete…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Active note tracking** per channel (and optionally per transport) for chord detection and panic.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **MIDI clock follow**: handle Start / Stop / Continue / Timing Clock / SPP; derive…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**MIDI clock follow**: handle Start / Stop / Continue / Timing Clock / SPP; derive BPM from **24 PPQN** rolling average.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] Connect AppSettings.midiClockSource / midiTransportReceive to actual source select…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nConnect `AppSettings.midiClockSource` / `midiTransportReceive` to actual source selection and clock extraction.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **Play surface UX**: small **corner BPM** readout (spec: top-right, low-contrast);…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Play surface UX**: small **corner BPM** readout (spec: top-right, low-contrast); **flash** on quarter-note (or setting); show `—` when no clock.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] Settings row: **Follow MIDI clock** toggle (clkFollow) + optional clkFlashEdge + NVS.",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nSettings row: **Follow MIDI clock** toggle (`clkFollow`) + optional `clkFlashEdge` + NVS.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **Chord detection pipeline**: aggregate simultaneous notes → chord class → map to …",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Chord detection pipeline**: aggregate simultaneous notes → chord class → map to suggestion / highlight (tie into `ChordModel` or new module).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **Suggestion generation & ranking** (if distinct from simple match): define algori…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Suggestion generation & ranking** (if distinct from simple match): define algorithm, tests on host where possible.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 2,
+    "phase_title": "MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)",
+    "title": "[P2] **Debug overlay** page or screen: last N IN events, active notes, BPM, transport —…",
+    "body": "## Phase 2 — MIDI IN, transports, and clock (per `MIDI_INPUT_SPEC.md`)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Debug overlay** page or screen: last N IN events, active notes, BPM, transport — toggle from settings or build flag.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 2)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 3,
+    "phase_title": "Safety, thru, panic",
+    "title": "[P3] **All-notes-off** / CC panic on: screen change, error, transport stop, settings en…",
+    "body": "## Phase 3 — Safety, thru, panic\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**All-notes-off** / CC panic on: screen change, error, transport stop, settings entry (policy table).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 3)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 3,
+    "phase_title": "Safety, thru, panic",
+    "title": "[P3] **MIDI thru** behavior: per setting, which transports merge to OUT (after Phase 2).",
+    "body": "## Phase 3 — Safety, thru, panic\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**MIDI thru** behavior: per setting, which transports merge to OUT (after Phase 2).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 3)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **Transport page / rows**: tie UI to real **project BPM** (already in NVS/project)…",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Transport page / rows**: tie UI to real **project BPM** (already in NVS/project); add **default strum** mode if still product goal.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **Swing / humanize** for outgoing MIDI or internal clock (align with existing SeqE…",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Swing / humanize** for outgoing MIDI or internal clock (align with existing `SeqExtras.swingPct` vs global transport).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **UI**: theme / accent selection (persist; apply UiTheme or expand palette).",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**UI**: theme / accent selection (persist; apply `UiTheme` or expand palette).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **Touch**: configurable long-press thresholds (settings entry, Shift, seq long-pre…",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Touch**: configurable long-press thresholds (settings entry, Shift, seq long-press) with sane bounds.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **Velocity curve**: input curve for touch or output curve for MIDI (document vs si…",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Velocity curve**: input curve for touch or output curve for MIDI (document vs single velocity).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 4,
+    "phase_title": "Settings expansion (Milestone 2 remainder)",
+    "title": "[P4] **Brightness** — verify already wired; add preview if missing.",
+    "body": "## Phase 4 — Settings expansion (Milestone 2 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Brightness** — verify already wired; add preview if missing.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 4)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **Chord category pages**: history, diatonic, functional, related, chromatic — navi…",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Chord category pages**: history, diatonic, functional, related, chromatic — navigation model + `Screen` or modal stack.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **BACK/FWD long-press** → fast page cycle (vs short-tap ring); de-conflict with se…",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**BACK/FWD long-press** → fast page cycle (vs short-tap ring); de-conflict with settings 800 ms hold.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **Destructive actions**: confirm dialogs (factory reset already partial — extend p…",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Destructive actions**: confirm dialogs (factory reset already partial — extend pattern).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **Gesture feedback**: linear hold progress (settings entry, Shift arm, etc.).",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Gesture feedback**: linear hold progress (settings entry, Shift arm, etc.).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **Hit-testing**: measure and tune debounce / fat-finger padding; document test pro…",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Hit-testing**: measure and tune debounce / fat-finger padding; document test procedure.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 5,
+    "phase_title": "Play surface UX (Milestone 4 remainder)",
+    "title": "[P5] **Usability**: bright / dim environment checklist (manual QA).",
+    "body": "## Phase 5 — Play surface UX (Milestone 4 remainder)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Usability**: bright / dim environment checklist (manual QA).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 5)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 6,
+    "phase_title": "Sequencer core (playback + editor)",
+    "title": "[P6] **Step tap → dropdown**: list ChordModel surround + rest + tie + (optional) surpri…",
+    "body": "## Phase 6 — Sequencer core (playback + editor)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Step tap → dropdown**: list `ChordModel` surround + rest + tie + (optional) surprise pool — replace pure cycle.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 6)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 6,
+    "phase_title": "Sequencer core (playback + editor)",
+    "title": "[P6] **Internal transport** → **MIDI OUT** from pattern: for each step, resolve chord/r…",
+    "body": "## Phase 6 — Sequencer core (playback + editor)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Internal transport** → **MIDI OUT** from pattern: for each step, resolve chord/rest/tie, respect lane + swing/quantize from `SeqExtras` as product intends.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 6)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 6,
+    "phase_title": "Sequencer core (playback + editor)",
+    "title": "[P6] **Live playhead** highlight on grid during playback (may exist partially — verify …",
+    "body": "## Phase 6 — Sequencer core (playback + editor)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Live playhead** highlight on grid during playback (may exist partially — verify vs spec).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 6)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 6,
+    "phase_title": "Sequencer core (playback + editor)",
+    "title": "[P6] **Surprise / heart chords in seq**: in or out of dropdown (resolve open question i…",
+    "body": "## Phase 6 — Sequencer core (playback + editor)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Surprise / heart chords in seq**: in or out of dropdown (resolve open question in spec).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 6)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 6,
+    "phase_title": "Sequencer core (playback + editor)",
+    "title": "[P6] **Tie semantics** across loop boundary (spec open question — pick one, implement, …",
+    "body": "## Phase 6 — Sequencer core (playback + editor)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Tie semantics** across loop boundary (spec open question — pick one, implement, document).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 6)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] **Shift model**: long-press **SELECT** (400–800 ms) = modifier while held **or** t…",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Shift model**: long-press **SELECT** (400–800 ms) = modifier while held **or** toggle — pick v1 per `SEQUENCER_AND_SHIFT_UX_SPEC.md`.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] De-conflict with **Play** SELECT = key-edit latch: use timing, double-tap, or sepa…",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nDe-conflict with **Play** SELECT = key-edit latch: use timing, double-tap, or separate chord (document UX).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] **Shift + chord pads**: alternate labels; send **CC / program change** map (define…",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Shift + chord pads**: alternate labels; send **CC / program change** map (define default map + settings storage).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] **Shift + sequencer steps**: expose **clock division**, **arp on/off**, **arp patt…",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Shift + sequencer steps**: expose **clock division**, **arp on/off**, **arp pattern**, **arp clock div** (matrix or overlay).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] **Shift + BACK/FWD**: increment/decrement focused parameter; **hold** = accelerate.",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Shift + BACK/FWD**: increment/decrement focused parameter; **hold** = accelerate.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 7,
+    "phase_title": "Shift layer (Play + Sequencer + XY)",
+    "title": "[P7] **Focus model**: last touched step/pad vs global (resolve spec open question).",
+    "body": "## Phase 7 — Shift layer (Play + Sequencer + XY)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Focus model**: last touched step/pad vs global (resolve spec open question).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 7)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 8,
+    "phase_title": "Per-step clock division & arpeggiator",
+    "title": "[P8] Data model: per-step stepClockDiv, arpEnabled, arpPattern, arpClockDiv (+ migratio…",
+    "body": "## Phase 8 — Per-step clock division & arpeggiator\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nData model: per-step `stepClockDiv`, `arpEnabled`, `arpPattern`, `arpClockDiv` (+ migration from 16-byte pattern blob).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 8)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 8,
+    "phase_title": "Per-step clock division & arpeggiator",
+    "title": "[P8] **Transport math**: step window length from global default + per-step override; in…",
+    "body": "## Phase 8 — Per-step clock division & arpeggiator\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Transport math**: step window length from global default + per-step override; interaction with BPM.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 8)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 8,
+    "phase_title": "Per-step clock division & arpeggiator",
+    "title": "[P8] **Arp engine**: schedule note-ons within step window; **truncate vs spill** policy…",
+    "body": "## Phase 8 — Per-step clock division & arpeggiator\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Arp engine**: schedule note-ons within step window; **truncate vs spill** policy (pick one from spec open questions).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 8)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 8,
+    "phase_title": "Per-step clock division & arpeggiator",
+    "title": "[P8] UI: all Shift paths wired; visual indicators on steps with arp/div overrides.",
+    "body": "## Phase 8 — Per-step clock division & arpeggiator\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nUI: all Shift paths wired; visual indicators on steps with arp/div overrides.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 8)\n- `docs/DEV_ROADMAP.md`\n- `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`\n"
+  },
+  {
+    "phase": 8,
+    "phase_title": "Per-step clock division & arpeggiator",
+    "title": "[P8] Persist expanded blob to NVS + **SD backup** format bump + restore.",
+    "body": "## Phase 8 — Per-step clock division & arpeggiator\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nPersist expanded blob to NVS + **SD backup** format bump + restore.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 8)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 9,
+    "phase_title": "X–Y MIDI page (complete spec)",
+    "title": "[P9] **Assignment editor**: channel, CC per axis, curve (linear/log/invert), optional l…",
+    "body": "## Phase 9 — X–Y MIDI page (complete spec)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Assignment editor**: channel, CC per axis, curve (linear/log/invert), optional labels (`Cutoff`, etc.).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 9)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 9,
+    "phase_title": "X–Y MIDI page (complete spec)",
+    "title": "[P9] **14-bit** CC pairs or MSB/LSB where supported; fallback 7-bit.",
+    "body": "## Phase 9 — X–Y MIDI page (complete spec)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**14-bit** CC pairs or MSB/LSB where supported; fallback 7-bit.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 9)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 9,
+    "phase_title": "X–Y MIDI page (complete spec)",
+    "title": "[P9] **Release policy** per axis: hold last, spring to center, send zero — implement + …",
+    "body": "## Phase 9 — X–Y MIDI page (complete spec)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Release policy** per axis: hold last, spring to center, send zero — implement + persist `xyPadSpring`-style enum.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 9)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 9,
+    "phase_title": "X–Y MIDI page (complete spec)",
+    "title": "[P9] Replace stub midiSendControlChange usage with real transport; throttle if needed t…",
+    "body": "## Phase 9 — X–Y MIDI page (complete spec)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nReplace stub `midiSendControlChange` usage with real transport; throttle if needed to avoid MIDI flood.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 9)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 9,
+    "phase_title": "X–Y MIDI page (complete spec)",
+    "title": "[P9] NVS + SD backup for XY mapping (align with SdBackup / project files).",
+    "body": "## Phase 9 — X–Y MIDI page (complete spec)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nNVS + SD backup for XY mapping (align with `SdBackup` / project files).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 9)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 10,
+    "phase_title": "Hardware E2E & release (Milestone 5)",
+    "title": "[P10] Run checklist on CoreS3; record dates/results in E2E_STATUS.md or checklist appendix.",
+    "body": "## Phase 10 — Hardware E2E & release (Milestone 5)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nRun checklist on CoreS3; record dates/results in `E2E_STATUS.md` or checklist appendix.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 10)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 10,
+    "phase_title": "Hardware E2E & release (Milestone 5)",
+    "title": "[P10] **Tag** v0.1.0 (or agreed version); **release notes** with known issues + recovery…",
+    "body": "## Phase 10 — Hardware E2E & release (Milestone 5)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\n**Tag** `v0.1.0` (or agreed version); **release notes** with known issues + recovery (flash, NVS clear, SD).\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 10)\n- `docs/DEV_ROADMAP.md`\n"
+  },
+  {
+    "phase": 10,
+    "phase_title": "Hardware E2E & release (Milestone 5)",
+    "title": "[P10] Verify FLASH_INSTRUCTIONS.md / CI match release artifact.",
+    "body": "## Phase 10 — Hardware E2E & release (Milestone 5)\n\nFrom `docs/TODO_IMPLEMENTATION.md`:\n\nVerify `FLASH_INSTRUCTIONS.md` / CI match release artifact.\n\n## References\n- `docs/TODO_IMPLEMENTATION.md` (Phase 10)\n- `docs/DEV_ROADMAP.md`\n"
+  }
+]

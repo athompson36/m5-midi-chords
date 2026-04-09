@@ -1,0 +1,57 @@
+QUICK START
+===============================================================
+
+DE
+1. Python installieren: https://www.python.org/downloads/
+2. M5Stack CoreS3 per USB-C Datenkabel verbinden (Datenleitung, nicht nur Laden).
+3. Windows: flash_firmware.bat doppelklicken.
+4. macOS/Linux: python3 flash_firmware.py ausfuehren.
+
+EN
+1. Install Python 3: https://www.python.org/downloads/
+2. Connect M5Stack CoreS3 with a USB-C cable that supports data.
+3. Windows: double-click flash_firmware.bat.
+4. macOS/Linux: run python3 flash_firmware.py.
+
+===============================================================
+AFTER FLASH: EXPECTED BEHAVIOR (CoreS3 UI)
+
+1. Boot splash: "Hi! Let's Play" button appears on a blue background.
+2. Tap the button to enter the play surface.
+3. Play surface:
+   - Top center shows the selected key (e.g. "C"). Tap to cycle keys.
+   - Center square = key (tap to cycle). Eight square chord pads in a ring (3x3 minus center):
+     I, ii, iii, IV, V, vi, vii, bVII — color-coded:
+     GREEN = principal (I, IV, V)
+     BLUE  = standard (ii, iii, vi)
+     RED   = tension (vii dim)
+     PINK  = borrowed (bVII)
+   - Tap a chord to "play" it.
+4. After 5 chord taps the key area shows a heart icon.
+   Tap the heart for a surprise chord (modal interchange, etc.).
+5. Settings: place two fingers on the left and right edges and hold ~0.8 s.
+   BACK/FWD = move row, SELECT = change value, last row = Save & exit.
+6. Adjustable: MIDI out channel, MIDI in (OMNI or channel), brightness, velocity.
+
+===============================================================
+IF SOMETHING FAILS
+
+- Port not found:
+  Try download mode: hold RESET for ~2 s until green LED, or try another cable.
+- Flashing fails:
+  Run python flash_firmware.py manually, or use FLASH_INSTRUCTIONS.md.
+- Still blocked:
+  Open FLASH_INSTRUCTIONS.md for full steps.
+
+===============================================================
+FILES
+
+- firmware.bin
+- bootloader.bin
+- partitions.bin
+- flash_firmware.py
+- flash_firmware.bat
+- FLASH_INSTRUCTIONS.md
+- README.md
+- BUILD_INFO.md
+- QUICKSTART.txt
