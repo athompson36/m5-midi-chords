@@ -307,6 +307,8 @@ XyComboTrack s_xyCombo{};
 static int s_playTouchDrawChord = -100;
 static bool s_playTouchDrawOnKey = false;
 static bool s_playTouchDrawVoicing = false;
+// Locked hit target for current touch gesture (prevents noisy cross-tile bouncing).
+static int s_playTouchLockedHit = -9999;
 /// Last painted finger highlight (synced from partial redraws and full `drawPlaySurface`).
 static int s_playFingerVisualChord = -100;
 static bool s_playFingerVisualOnKey = false;
@@ -329,6 +331,8 @@ static Screen s_screenBeforeTransport = Screen::Play;
 static bool s_selectSwipeTracking = false;
 static int s_selectSwipeStartY = 0;
 static constexpr int kSwipeUpThresholdPx = 40;
+// True right after swipe-opening Transport; ignore carried touch until finger-up.
+static bool s_transportIgnoreUntilTouchUp = false;
 
 /// Movement past this distance from touch-down suppresses row pick (scroll vs tap).
 static constexpr int kUiScrollSuppressPickPx = 14;
@@ -1440,10 +1444,28 @@ static void playRedrawAllCellsInPlace(int fingerChord = -100, bool fingerOnKey =
   const int maxY = h - kBezelBarH;
   const bool showLp = fingerChord < -50;
 
-  playClearCellPadded(g_keyRect, w, maxY);
+  // Clear the whole pad grid in one pass to avoid cell-by-cell visual hopping.
+  Rect band = playSurfaceGridBoundsPadded(4);
+  if (band.x < 0) {
+    band.w += band.x;
+    band.x = 0;
+  }
+  if (band.y < 0) {
+    band.h += band.y;
+    band.y = 0;
+  }
+  if (band.x + band.w > w) {
+    band.w = w - band.x;
+  }
+  if (band.y + band.h > maxY) {
+    band.h = maxY - band.y;
+  }
+  if (band.w > 0 && band.h > 0) {
+    M5.Display.fillRect(band.x, band.y, band.w, band.h, g_uiPalette.bg);
+  }
+
   drawPlayKeyCell(fingerOnKey, showLp);
   for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
-    playClearCellPadded(g_chordRects[i], w, maxY);
     drawPlayChordCell(i, fingerChord, showLp);
   }
   s_playFingerVisualChord = fingerChord;
@@ -1459,21 +1481,47 @@ static void playRedrawGridBand() {
   playRedrawAllCellsInPlace(-100, false);
 }
 
-static void playRedrawAfterOutlineChange() {
-  M5.Display.startWrite();
-  playRedrawAllCellsInPlace();
-  drawBezelBarStrip();
-  M5.Display.endWrite();
-}
+static void playRedrawAfterOutlineChange(int previousOutline, int fingerChord = -100, bool fingerOnKey = false) {
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  computePlaySurfaceLayout(w, h);
+  const int maxY = h - kBezelBarH;
+  const bool showLp = fingerChord < -50;
 
-static void playRedrawClearFingerHighlight() {
+  bool redrawKey = (previousOutline == -2) || (g_lastPlayedOutline == -2) || fingerOnKey;
+  bool redrawChord[ChordModel::kSurroundCount] = {};
+  if (previousOutline >= 0 && previousOutline < ChordModel::kSurroundCount) {
+    redrawChord[previousOutline] = true;
+  }
+  if (g_lastPlayedOutline >= 0 && g_lastPlayedOutline < ChordModel::kSurroundCount) {
+    redrawChord[g_lastPlayedOutline] = true;
+  }
+  if (fingerChord >= 0 && fingerChord < ChordModel::kSurroundCount) {
+    redrawChord[fingerChord] = true;
+  }
+
   M5.Display.startWrite();
-  playRedrawAllCellsInPlace();
+  if (redrawKey) {
+    playClearCellPadded(g_keyRect, w, maxY);
+    drawPlayKeyCell(fingerOnKey, showLp);
+  }
+  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
+    if (!redrawChord[i]) continue;
+    playClearCellPadded(g_chordRects[i], w, maxY);
+    drawPlayChordCell(i, fingerChord, showLp);
+  }
+  s_playFingerVisualChord = fingerChord;
+  s_playFingerVisualOnKey = fingerOnKey;
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
 
 static void playRedrawInPlace(int fingerChord, bool fingerOnKey);
+static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey);
+
+static void playRedrawClearFingerHighlight() {
+  playRedrawFingerHighlightOnly(-100, false);
+}
 
 // Updates finger highlight on chord pads / key without full-panel fillRect (see §2 UI backlog).
 static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey) {
@@ -1487,10 +1535,6 @@ static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey) {
 
   const bool showLpNew = fingerChord < -50;
   const bool showLpOld = s_playFingerVisualChord < -50;
-  if (showLpNew != showLpOld) {
-    playRedrawInPlace(fingerChord, fingerOnKey);
-    return;
-  }
 
   const int oldFc = s_playFingerVisualChord;
   const bool oldOk = s_playFingerVisualOnKey;
@@ -1512,6 +1556,10 @@ static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey) {
     clearFill(g_keyRect);
     drawPlayKeyCell(fingerOnKey, showLpNew);
   }
+  if (showLpOld != showLpNew && g_lastPlayedOutline == -2) {
+    clearFill(g_keyRect);
+    drawPlayKeyCell(fingerOnKey, showLpNew);
+  }
 
   bool chordMark[ChordModel::kSurroundCount] = {};
   if (oldFc >= 0 && oldFc < ChordModel::kSurroundCount) {
@@ -1519,6 +1567,10 @@ static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey) {
   }
   if (fingerChord >= 0 && fingerChord < ChordModel::kSurroundCount) {
     chordMark[fingerChord] = true;
+  }
+  if (showLpOld != showLpNew && g_lastPlayedOutline >= 0 &&
+      g_lastPlayedOutline < ChordModel::kSurroundCount) {
+    chordMark[g_lastPlayedOutline] = true;
   }
   for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
     if (!chordMark[i]) continue;
@@ -3526,6 +3578,18 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
     if (!wasTouchActive) {
       s_playTouchStartMs = millis();
       s_playChordTriggeredThisTouch = false;
+      s_playTouchLockedHit = -9999;
+      for (uint8_t i = 0; i < touchCount; ++i) {
+        const auto& d = M5.Touch.getDetail(i);
+        if (!d.isPressed()) continue;
+        if (pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
+            pointInRect(d.x, d.y, g_bezelFwd)) {
+          s_playTouchLockedHit = -100;
+        } else {
+          s_playTouchLockedHit = hitTestPlay(d.x, d.y);
+        }
+        break;
+      }
     }
     if (touchCount > s_playGestureMaxTouches) {
       s_playGestureMaxTouches = static_cast<uint8_t>(touchCount);
@@ -3596,6 +3660,7 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
     }
     if (d.isPressed()) {
       const int ht = hitTestPlay(d.x, d.y);
+      const int htLocked = (s_playTouchLockedHit != -9999) ? s_playTouchLockedHit : ht;
       if (ht == -2 && !s_playSelectLatched) {
         if (!s_playKeyHoldArmed) {
           s_playKeyHoldArmed = true;
@@ -3624,17 +3689,18 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
       }
     }
     const int ht = hitTestPlay(d.x, d.y);
+    const int htLocked = (s_playTouchLockedHit != -9999) ? s_playTouchLockedHit : ht;
     int dc = -100;
     bool dok = false;
     if (pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
         pointInRect(d.x, d.y, g_bezelFwd)) {
       dc = -100;
       dok = false;
-    } else if (ht == -2) {
+    } else if (htLocked == -2) {
       dc = -100;
       dok = true;
-    } else if (ht >= 0) {
-      dc = ht;
+    } else if (htLocked >= 0) {
+      dc = htLocked;
       dok = false;
     } else {
       dc = -100;
@@ -3646,14 +3712,14 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
       s_playTouchDrawVoicing = false;
       const bool onBezel = pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
                            pointInRect(d.x, d.y, g_bezelFwd);
-      if (!onBezel && ht != -2 && ht < 0) {
+      if (!onBezel && htLocked != -2 && htLocked < 0) {
         playRedrawInPlace();
       } else {
         playRedrawFingerHighlightOnly(dc, dok);
       }
     }
     if (d.isPressed() && !s_playChordTriggeredThisTouch && !s_playSelectLatched && !s_shiftActive) {
-      if (ht == -2) {
+      if (htLocked == -2) {
         const uint8_t mch = static_cast<uint8_t>(g_settings.midiOutChannel - 1);
         const uint8_t vel = applyOutputVelocityCurve(g_settings.outputVelocity);
         uint8_t vcap = g_chordVoicing;
@@ -3672,23 +3738,25 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
         } else {
           midiPlayTonicChord(g_model, mch, vel, vcap, g_settings.arpeggiatorMode, g_settings.transposeSemitones);
         }
+        const int prevOutline = g_lastPlayedOutline;
         g_lastPlayedOutline = -2;
         transportSetLiveChord(-1);
         s_playChordTriggeredThisTouch = true;
         s_playChordActiveCh0 = static_cast<uint8_t>(mch & 0x0F);
-        playRedrawInPlace();
+        playRedrawAfterOutlineChange(prevOutline, -100, true);
         wasTouchActive = true;
         return;
       }
-      if (ht >= 0 && ht < ChordModel::kSurroundCount) {
+      if (htLocked >= 0 && htLocked < ChordModel::kSurroundCount) {
         const uint8_t mch = static_cast<uint8_t>((g_settings.midiOutChannel - 1U) & 0x0F);
-        const bool heartTransitioned = playTriggerSurroundByIdx(ht, false);
+        const int prevOutline = g_lastPlayedOutline;
+        const bool heartTransitioned = playTriggerSurroundByIdx(htLocked, false);
         s_playChordTriggeredThisTouch = true;
         s_playChordActiveCh0 = mch;
         if (heartTransitioned) {
           playRedrawInPlace();
         } else {
-          playRedrawAfterOutlineChange();
+          playRedrawAfterOutlineChange(prevOutline, htLocked, false);
         }
         wasTouchActive = true;
         return;
@@ -3699,6 +3767,7 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
   }
 
   if (touchCount == 0) {
+    s_playTouchLockedHit = -9999;
     if (!wasTouchActive) return;
     if (millis() - s_playTouchStartMs < kTapDebounceMs) {
       s_playTouchDrawChord = -100;
@@ -3842,9 +3911,10 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
           schedulePlayAutoSilence(mch);
         }
       }
+      const int prevOutline = g_lastPlayedOutline;
       g_lastPlayedOutline = -2;
       transportSetLiveChord(-1);
-      playRedrawInPlace();
+      playRedrawAfterOutlineChange(prevOutline);
       return;
     }
     if (hit >= 0 && hit < ChordModel::kSurroundCount) {
@@ -3898,11 +3968,12 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
           return;
         }
       }
+      const int prevOutline = g_lastPlayedOutline;
       const bool heartTransitioned = playTriggerSurroundByIdx(hit);
       if (heartTransitioned) {
         playRedrawInPlace();
       } else {
-        playRedrawAfterOutlineChange();
+        playRedrawAfterOutlineChange(prevOutline);
       }
       return;
     }
@@ -4922,6 +4993,18 @@ void processTransportTapTempoTouch(uint8_t touchCount, int w, int h) {
 }
 
 void processTransportTouch(uint8_t touchCount, int w, int h) {
+  if (s_transportIgnoreUntilTouchUp) {
+    if (touchCount > 0) {
+      wasTouchActive = true;
+      return;
+    }
+    s_transportIgnoreUntilTouchUp = false;
+    wasTouchActive = false;
+    s_transportTouchDown = false;
+    s_transportDropDragLastY = -1;
+    s_transportDropFingerScrollCount = 0;
+    return;
+  }
   layoutBottomBezels(w, h);
   layoutTransportRects(w, h);
 
@@ -7500,6 +7583,8 @@ void loop() {
           s_shiftSelectDown = false;
           s_shiftSelectDownMs = 0;
           wasTouchActive = true;
+          suppressNextPlayTap = true;
+          s_transportIgnoreUntilTouchUp = true;
           openTransportDrawer();
           delay(10);
           return;
