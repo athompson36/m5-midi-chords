@@ -1,9 +1,9 @@
 #include <stdint.h>
-#include <string.h>
 #include <vector>
 
-#include "../test_support.h"
-#include "../../src/MidiOut.h"
+#include <unity.h>
+
+#include "MidiOut.h"
 
 namespace {
 

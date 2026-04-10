@@ -1,5 +1,7 @@
 # Development Roadmap
 
+> **Status:** Historical milestone log. For the current backlog use [`TODO_IMPLEMENTATION.md`](TODO_IMPLEMENTATION.md). For doc routing see [`DOCS_INDEX.md`](DOCS_INDEX.md).
+
 This roadmap is organized into milestones with concrete TODO checklists.
 
 ## Milestone 1 - Foundation Stabilization

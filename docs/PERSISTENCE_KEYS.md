@@ -37,3 +37,19 @@ ESP32 **Preferences** namespace: **`m5chord`**. All keys below are stored in fla
 Factory reset clears the namespace and rewrites defaults (`SettingsStore::factoryResetAll`).
 
 See also: `src/SettingsStore.cpp`, `docs/TODO_IMPLEMENTATION.md` (Phase 0 migration task).
+
+---
+
+## Legacy compatibility (read/write policy)
+
+Some keys exist for **backward compatibility** with older firmware or mirrored fields:
+
+| Item | Role | Policy |
+|------|------|--------|
+| `inCh` | MIDI in channel (0=OMNI) | Still read on boot; migration may mirror into newer representations—see `SettingsStore.cpp` |
+| Legacy `seq` 16-byte read | Older single pattern | Wider blob preferred; store still accepts legacy read paths where implemented |
+| `mThr` / thru-related mirrored fields | MIDI thru routing | If present in code, treat as legacy mirror until a deliberate schema bump removes write-back |
+
+**Sunset rule:** keep **reading** legacy keys until users are unlikely to downgrade across a chosen version boundary; **stop writing** legacy-only keys once migration is proven; **remove** reads only after a documented version cutoff (bump `kPrefsSchemaVersion` and document in this file).
+
+Do not rename NVS keys or change save semantics for UI refactors—drawers and new screens must bind to existing `AppSettings` / store fields.

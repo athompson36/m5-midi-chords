@@ -1,8 +1,8 @@
-# M5Stack CoreS3 Chord Suggester
+# M5Stack CoreS3 MIDI Chords
 
-A key-aware chord suggestion firmware for the **M5Stack CoreS3** (ESP32-S3). Select a musical key and see its diatonic chords color-coded by harmonic importance — then discover surprise chords for creative depth.
+Touchscreen **MIDI instrument** firmware for the **M5Stack CoreS3** (ESP32-S3): chord performance, 16-step sequencer, X–Y CC control, transport/clock, and settings—with USB, BLE, and optional DIN MIDI paths.
 
-Based on the [original round-display prototype](https://www.youtube.com/watch?v=bHaTqlVzRXw), adapted for the CoreS3's 320×240 rectangular touchscreen. See `docs/ORIGINAL_UX_SPEC.md` for the full design reference.
+Chord surfaces remain key-aware (diatonic chords, harmonic roles, heart/surprise flow). See `docs/ORIGINAL_UX_SPEC.md` for design lineage from the [round-display prototype](https://www.youtube.com/watch?v=bHaTqlVzRXw).
 
 ## User Experience
 
@@ -12,16 +12,19 @@ On power-on the firmware goes **straight to the Play surface** (no splash gate).
 
 ### Bezel navigation (main ring)
 
-Short tap **BACK** or **FWD** cycles pages in a fixed ring:
+Short tap **BACK** or **FWD** cycles the **three main surfaces**:
 
-**Transport → Play → Sequencer → X–Y → …**
+**Play → Sequencer → X–Y → …**
 
-- **Transport**: internal clock, play/stop/rec, metronome, count-in, BPM/project name.
-- **Play**: chord pad surface (below).
-- **Sequencer**: 16-step grid (3 lanes; pattern stored in **NVS**).
-- **X–Y**: two-axis control pad (CC assignments in NVS; sends MIDI CC via active transports).
+- **Play**: chord pad surface, key/mode, MIDI note output.
+- **Sequencer**: 16-step grid (3 lanes; pattern and `SeqExtras` in **NVS**; optional SD project).
+- **X–Y**: two-axis pad (CC assignments in NVS; MIDI CC via active transports).
 
-**Hold BACK + FWD** together ~**0.8 s** opens **Settings** from Transport, Play, Sequencer, or X–Y.
+**Transport** (clock, play/stop/rec, metronome, count-in, BPM, project name) opens as a **bottom sheet**: swipe **up from the SELECT bezel** (or the existing transport entry gesture in firmware). It is **not** part of the BACK/FWD ring.
+
+**Hold BACK + FWD** together ~**0.8 s** opens **Settings** from Play, Sequencer, or X–Y.
+
+**Top drawers** (swipe down from the top edge on Play / Sequencer / X–Y) expose page-specific secondary controls when implemented; see `docs/UI_REFACTOR_MASTER_PLAN.md`.
 
 ### Play surface
 
@@ -66,8 +69,9 @@ Section-based UI: **MIDI**, **Display**, **Seq/Arp**, **SD/Backup**, etc. Long-p
 - `src/DinMidiTransport.h` / `.cpp` — DIN UART MIDI ingress/egress bridge (MIDI CHIP compatible)
 - `test/` — native unit tests
 - `variants/m5stack_cores3/` — board variant
-- `docs/DEV_ROADMAP.md` — milestones
+- `docs/DOCS_INDEX.md` — which docs are authoritative vs historical
 - `docs/TODO_IMPLEMENTATION.md` — remaining feature backlog
+- `docs/DEV_ROADMAP.md` — milestone history (verify against code)
 - `docs/PERSISTENCE_KEYS.md` — NVS key table
 - `docs/HARDWARE_E2E_CHECKLIST.md` — manual hardware verification
 - `docs/DIN_MIDI_CHIP_SETUP.md` — wiring + pin override guide for 5-pin DIN board integration

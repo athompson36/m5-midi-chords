@@ -1,5 +1,7 @@
 # E2E Status
 
+> **Note:** This file records a **point-in-time** manual/native run, not live CI. Update the date and sections when re-validating; see [`DOCS_INDEX.md`](DOCS_INDEX.md).
+
 Date: 2026-04-08
 
 ## What was run
