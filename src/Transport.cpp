@@ -36,6 +36,10 @@ bool s_recording = false;
 bool s_recordArmed = false;
 int8_t s_liveChord = -1;
 bool s_externalClockDrive = false;
+/// Set by MIDI Stop / local Stop: blocks re-arming from 0xF8 alone while host may still send clock.
+bool s_extClockStreamArmBlocked = false;
+/// Last 0xF8 (or external Start/Continue) time — for inferring stop when host never sends 0xFC.
+uint32_t s_extLastClockActivityMs = 0;
 uint8_t s_externalClockTickPhase = 0;  // 6 MIDI clocks per sequencer step.
 uint32_t s_externalPrevClockMs = 0;
 uint32_t s_externalAvgClockMs = 0;
@@ -188,6 +192,9 @@ uint32_t transportStepWindowMs() {
 }
 
 void transportStop() {
+  // Only block "clock-alone" re-arm after stop when we were actually following external MIDI clock.
+  // If transport was internal-only, leave the arm open so host clock (F8) can slave again without FA/MMC.
+  const bool wasSlaved = s_externalClockDrive;
   s_phase = Phase::Idle;
   s_playhead = 0;
   s_audibleStep = 0;
@@ -201,6 +208,8 @@ void transportStop() {
   s_externalAvgClockMs = 0;
   s_externalClockBpm = 0;
   s_lastStepWindowMs = beatIntervalMs();
+  s_extClockStreamArmBlocked = wasSlaved;
+  s_extLastClockActivityMs = 0;
 }
 
 void transportTogglePlayPause(uint32_t nowMs) {
@@ -292,6 +301,7 @@ void transportTick(uint32_t nowMs) {
 }
 
 void transportOnExternalStart(uint32_t nowMs) {
+  s_extClockStreamArmBlocked = false;
   s_externalClockDrive = true;
   s_externalClockTickPhase = 0;
   s_externalPrevClockMs = 0;
@@ -302,13 +312,16 @@ void transportOnExternalStart(uint32_t nowMs) {
   s_countInDisplay = 0;
   s_recording = s_recordArmed;
   s_nextEventMs = nowMs;
+  s_extLastClockActivityMs = nowMs;
 }
 
 void transportOnExternalContinue(uint32_t nowMs) {
+  s_extClockStreamArmBlocked = false;
   s_externalClockDrive = true;
   s_phase = Phase::Playing;
   s_recording = s_recordArmed;
   s_nextEventMs = nowMs;
+  s_extLastClockActivityMs = nowMs;
 }
 
 void transportOnExternalStop() {
@@ -318,10 +331,14 @@ void transportOnExternalStop() {
   s_countInDisplay = 0;
   s_externalClockDrive = false;
   s_externalClockTickPhase = 0;
+  s_extClockStreamArmBlocked = true;
+  s_extLastClockActivityMs = 0;
 }
 
 void transportOnExternalClockTick(uint32_t nowMs) {
   if (!s_externalClockDrive || s_phase != Phase::Playing) return;
+
+  s_extLastClockActivityMs = nowMs;
 
   if (s_externalPrevClockMs != 0 && nowMs > s_externalPrevClockMs) {
     const uint32_t dt = nowMs - s_externalPrevClockMs;
@@ -362,4 +379,17 @@ uint16_t transportExternalClockBpm() {
 
 bool transportExternalClockActive() {
   return s_externalClockDrive;
+}
+
+bool transportExternalMayArmFromClockStream() {
+  return !s_extClockStreamArmBlocked;
+}
+
+bool transportExternalClockStalled(uint32_t nowMs) {
+  if (!s_externalClockDrive || s_phase != Phase::Playing) return false;
+  if (s_extLastClockActivityMs == 0) return false;
+  // MIDI 1.0: max gap between 0xF8 at 40 BPM ≈ 63 ms. Hosts that stop transport usually cease
+  // clock; many never send 0xFC to a USB device. Infer stop after sustained silence.
+  constexpr uint32_t kMaxMsWithoutClock = 700U;
+  return (nowMs - s_extLastClockActivityMs) > kMaxMsWithoutClock;
 }

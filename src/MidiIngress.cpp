@@ -4,17 +4,27 @@
 #include <Arduino.h>
 #endif
 
+#include <string.h>
+
 namespace {
 
+constexpr size_t kSysexCap = 256;
+uint8_t g_lastSysex[kSysexCap];
+
 constexpr size_t kIngressQueueCap = 512;
+uint8_t g_usbQ[kIngressQueueCap];
 uint8_t g_bleQ[kIngressQueueCap];
 uint8_t g_dinQ[kIngressQueueCap];
+size_t g_usbHead = 0;
+size_t g_usbTail = 0;
+size_t g_usbCount = 0;
 size_t g_bleHead = 0;
 size_t g_bleTail = 0;
 size_t g_bleCount = 0;
 size_t g_dinHead = 0;
 size_t g_dinTail = 0;
 size_t g_dinCount = 0;
+uint32_t g_usbQueueDropTotal = 0;
 uint32_t g_bleQueueDropTotal = 0;
 uint32_t g_dinQueueDropTotal = 0;
 
@@ -138,79 +148,142 @@ void MidiIngressParser::reset() {
   dataCount_ = 0;
   dataBuf_[0] = 0;
   dataBuf_[1] = 0;
+  sysexCollecting_ = false;
+  sysexOverflow_ = false;
+  sysexLen_ = 0;
 }
 
 bool MidiIngressParser::feedByte(uint8_t b, MidiSource src, MidiEvent* out) {
   if (!out) return false;
-  out->type = MidiEventType::None;
-  out->source = src;
-  out->channel = 0;
-  out->data1 = 0;
-  out->data2 = 0;
-  out->value14 = 0;
 
-  // Single-byte realtime messages can appear anywhere.
-  if (b >= 0xF8) {
-    out->type = midiTypeFromStatus(b, 0, 0);
-    return out->type != MidiEventType::None;
-  }
+  for (;;) {
+    out->type = MidiEventType::None;
+    out->source = src;
+    out->channel = 0;
+    out->data1 = 0;
+    out->data2 = 0;
+    out->value14 = 0;
 
-  // Status byte.
-  if (b & 0x80) {
-    // Ignore SysEx and other system-common for now except SPP.
-    if (b >= 0xF0) {
-      if (b == 0xF2) {
-        pendingStatus_ = b;
-        dataCount_ = 0;
-      } else {
+    // Single-byte realtime messages can appear anywhere (including inside SysEx).
+    if (b >= 0xF8) {
+      out->type = midiTypeFromStatus(b, 0, 0);
+      return out->type != MidiEventType::None;
+    }
+
+    if (sysexCollecting_) {
+      if (b < 0x80) {
+        if (!sysexOverflow_) {
+          if (sysexLen_ < kSysexCap) {
+            g_lastSysex[sysexLen_++] = b;
+          } else {
+            sysexOverflow_ = true;
+          }
+        }
+        return false;
+      }
+      if (b == 0xF7) {
+        if (!sysexOverflow_) {
+          if (sysexLen_ < kSysexCap) {
+            g_lastSysex[sysexLen_++] = 0xF7;
+          } else {
+            sysexOverflow_ = true;
+          }
+        }
+        if (!sysexOverflow_ && sysexLen_ >= 2) {
+          out->type = MidiEventType::SysEx;
+          out->value14 = sysexLen_;
+          sysexCollecting_ = false;
+          sysexLen_ = 0;
+          sysexOverflow_ = false;
+          return true;
+        }
+        sysexCollecting_ = false;
+        sysexLen_ = 0;
+        sysexOverflow_ = false;
+        return false;
+      }
+      if (b == 0xF0) {
+        sysexOverflow_ = false;
+        sysexLen_ = 1;
+        g_lastSysex[0] = 0xF0;
+        return false;
+      }
+      // System common (0xF1–0xF6) or other status: abort SysEx and re-parse this byte.
+      sysexCollecting_ = false;
+      sysexLen_ = 0;
+      sysexOverflow_ = false;
+      continue;
+    }
+
+    // Status byte.
+    if (b & 0x80) {
+      if (b == 0xF0) {
+        sysexCollecting_ = true;
+        sysexOverflow_ = false;
+        sysexLen_ = 1;
+        g_lastSysex[0] = 0xF0;
+        runningStatus_ = 0;
         pendingStatus_ = 0;
         dataCount_ = 0;
+        return false;
       }
+      if (b >= 0xF0) {
+        if (b == 0xF2) {
+          pendingStatus_ = b;
+          dataCount_ = 0;
+        } else {
+          pendingStatus_ = 0;
+          dataCount_ = 0;
+        }
+        runningStatus_ = 0;
+        return false;
+      }
+      runningStatus_ = b;
+      pendingStatus_ = b;
+      dataCount_ = 0;
       return false;
     }
-    runningStatus_ = b;
-    pendingStatus_ = b;
+
+    // Data byte.
+    if (pendingStatus_ == 0) {
+      if (runningStatus_ == 0) return false;
+      pendingStatus_ = runningStatus_;
+      dataCount_ = 0;
+    }
+
+    const uint8_t need = midiDataByteCount(pendingStatus_);
+    if (need == 0) return false;
+
+    if (dataCount_ < 2) {
+      dataBuf_[dataCount_++] = static_cast<uint8_t>(b & 0x7F);
+    }
+    if (dataCount_ < need) return false;
+
+    const uint8_t status = pendingStatus_;
+    const uint8_t d1 = dataBuf_[0];
+    const uint8_t d2 = dataBuf_[1];
     dataCount_ = 0;
-    return false;
-  }
+    if (status >= 0xF0) {
+      pendingStatus_ = 0;
+    } else {
+      pendingStatus_ = runningStatus_;
+    }
 
-  // Data byte.
-  if (pendingStatus_ == 0) {
-    if (runningStatus_ == 0) return false;
-    pendingStatus_ = runningStatus_;
-    dataCount_ = 0;
+    out->type = midiTypeFromStatus(status, d1, d2);
+    if (out->type == MidiEventType::None) return false;
+    out->data1 = d1;
+    out->data2 = d2;
+    if ((status & 0xF0) != 0xF0) {
+      out->channel = static_cast<uint8_t>(status & 0x0F);
+    }
+    if (out->type == MidiEventType::PitchBend || out->type == MidiEventType::SongPosition) {
+      out->value14 = static_cast<uint16_t>(d1 | (static_cast<uint16_t>(d2) << 7));
+    }
+    return true;
   }
-
-  const uint8_t need = midiDataByteCount(pendingStatus_);
-  if (need == 0) return false;
-
-  if (dataCount_ < 2) {
-    dataBuf_[dataCount_++] = static_cast<uint8_t>(b & 0x7F);
-  }
-  if (dataCount_ < need) return false;
-
-  const uint8_t status = pendingStatus_;
-  const uint8_t d1 = dataBuf_[0];
-  const uint8_t d2 = dataBuf_[1];
-  dataCount_ = 0;
-  if (status >= 0xF0) {
-    pendingStatus_ = 0;
-  } else {
-    pendingStatus_ = runningStatus_;
-  }
-
-  out->type = midiTypeFromStatus(status, d1, d2);
-  if (out->type == MidiEventType::None) return false;
-  out->data1 = d1;
-  out->data2 = d2;
-  if ((status & 0xF0) != 0xF0) {
-    out->channel = static_cast<uint8_t>(status & 0x0F);
-  }
-  if (out->type == MidiEventType::PitchBend || out->type == MidiEventType::SongPosition) {
-    out->value14 = static_cast<uint16_t>(d1 | (static_cast<uint16_t>(d2) << 7));
-  }
-  return true;
 }
+
+const uint8_t* midiIngressLastSysexPayload() { return g_lastSysex; }
 
 bool midiEventIsChannelVoice(const MidiEvent& ev) {
   return ev.type == MidiEventType::NoteOff || ev.type == MidiEventType::NoteOn ||
@@ -241,12 +314,11 @@ uint8_t midiSourceToRoute(MidiSource src) {
 bool midiIngressPollUsb(MidiIngressParser& parser, MidiEvent* out) {
   uint8_t buf[64];
   const size_t n = m5ChordUsbMidiRead(buf, sizeof(buf));
-  for (size_t i = 0; i < n; ++i) {
-    if (parser.feedByte(buf[i], MidiSource::Usb, out)) {
-      return true;
-    }
+  if (n > 0) {
+    queuePushBytes(g_usbQ, kIngressQueueCap, &g_usbHead, &g_usbTail, &g_usbCount, buf, n,
+                   &g_usbQueueDropTotal);
   }
-  return false;
+  return pollQueuedSource(parser, MidiSource::Usb, g_usbQ, kIngressQueueCap, &g_usbHead, &g_usbCount, out);
 }
 
 bool midiIngressPollBle(MidiIngressParser& parser, MidiEvent* out) {

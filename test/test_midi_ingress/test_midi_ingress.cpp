@@ -193,6 +193,35 @@ void test_usb_provider_hook_feeds_poller() {
   TEST_ASSERT_EQUAL_UINT8(120, ev.data2);
 }
 
+void test_sysex_complete_message() {
+  MidiIngressParser p;
+  MidiEvent ev{};
+  const uint8_t bytes[] = {0xF0, 0x01, 0x02, 0x03, 0xF7};
+  TEST_ASSERT_TRUE(midiIngressFeedUsbBytes(p, bytes, sizeof(bytes), &ev));
+  TEST_ASSERT_EQUAL(MidiEventType::SysEx, ev.type);
+  TEST_ASSERT_EQUAL_UINT16(5, ev.value14);
+  const uint8_t* sx = midiIngressLastSysexPayload();
+  TEST_ASSERT_EQUAL_UINT8(0xF0, sx[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x03, sx[3]);
+  TEST_ASSERT_EQUAL_UINT8(0xF7, sx[4]);
+}
+
+void test_sysex_realtime_interleaved() {
+  MidiIngressParser p;
+  MidiEvent ev{};
+  const uint8_t bytes[] = {0xF0, 0x01, 0xF8, 0x02, 0xF7};
+  TEST_ASSERT_TRUE(midiIngressFeedUsbBytes(p, bytes, 3, &ev));
+  TEST_ASSERT_EQUAL(MidiEventType::Clock, ev.type);
+  TEST_ASSERT_TRUE(midiIngressFeedUsbBytes(p, bytes + 3, 2, &ev));
+  TEST_ASSERT_EQUAL(MidiEventType::SysEx, ev.type);
+  TEST_ASSERT_EQUAL_UINT16(4, ev.value14);
+  const uint8_t* sx = midiIngressLastSysexPayload();
+  TEST_ASSERT_EQUAL_UINT8(0xF0, sx[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x01, sx[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02, sx[2]);
+  TEST_ASSERT_EQUAL_UINT8(0xF7, sx[3]);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_running_status_note_stream);
@@ -205,5 +234,7 @@ int main() {
   RUN_TEST(test_din_provider_hook_feeds_poller);
   RUN_TEST(test_din_queue_overflow_counts_drops);
   RUN_TEST(test_usb_provider_hook_feeds_poller);
+  RUN_TEST(test_sysex_complete_message);
+  RUN_TEST(test_sysex_realtime_interleaved);
   return UNITY_END();
 }

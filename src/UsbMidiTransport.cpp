@@ -115,4 +115,10 @@ size_t usbMidiRead(uint8_t* dst, size_t cap) {
 #endif
 }
 
+#if defined(PIO_NATIVE)
+extern "C" size_t __attribute__((weak)) m5ChordUsbMidiRead(uint8_t* dst, size_t cap) {
+  return usbMidiRead(dst, cap);
+}
+#else
 extern "C" size_t m5ChordUsbMidiRead(uint8_t* dst, size_t cap) { return usbMidiRead(dst, cap); }
+#endif

@@ -41,6 +41,10 @@ void transportOnExternalClockTick(uint32_t nowMs);
 void transportOnExternalSongPosition(uint16_t spp);
 uint16_t transportExternalClockBpm();
 bool transportExternalClockActive();
+/// After Stop (host or local), clock ticks alone must not re-arm sync until Start or Continue.
+bool transportExternalMayArmFromClockStream();
+/// True if MIDI clock from the host has been absent long enough while slaved (host often omits 0xFC).
+bool transportExternalClockStalled(uint32_t nowMs);
 
 extern bool g_prefsMetronome;
 extern bool g_prefsCountIn;

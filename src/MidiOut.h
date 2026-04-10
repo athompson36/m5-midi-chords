@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 struct ChordModel;
@@ -7,6 +8,8 @@ struct ChordModel;
 /// Raw MIDI bytes on **USB CDC `Serial`** (ESP32 Arduino). Host sees a virtual COM port; use a
 /// serial→MIDI bridge (e.g. Hairless) or future USB MIDI class stack for class-compliant devices.
 void midiSendControlChange(uint8_t channel0_15, uint8_t cc, uint8_t value);
+/// Raw SysEx (`F0` … `F7` inclusive). Broadcast to USB/BLE/DIN when wired.
+void midiSendSysEx(const uint8_t* bytes, size_t len);
 void midiSendProgramChange(uint8_t channel0_15, uint8_t program);
 void midiSendNoteOn(uint8_t channel0_15, uint8_t note, uint8_t velocity);
 void midiSendNoteOff(uint8_t channel0_15, uint8_t note);

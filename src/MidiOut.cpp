@@ -69,6 +69,14 @@ void midiSendControlChange(uint8_t channel0_15, uint8_t cc, uint8_t value) {
   write3(static_cast<uint8_t>(0xB0 | (channel0_15 & 0x0F)), cc & 0x7F, value & 0x7F);
 }
 
+void midiSendSysEx(const uint8_t* bytes, size_t len) {
+  if (!bytes || len < 2) return;
+  if (bytes[0] != 0xF0 || bytes[len - 1] != 0xF7) return;
+  ++s_txMsgTotal;
+  s_txBytesTotal += static_cast<uint32_t>(len);
+  writeBytes(bytes, len);
+}
+
 void midiSendProgramChange(uint8_t channel0_15, uint8_t program) {
   ++s_txMsgTotal;
   s_txBytesTotal += 2U;

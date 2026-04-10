@@ -18,7 +18,8 @@ enum class MidiEventType : uint8_t {
   Start,
   Continue,
   Stop,
-  SongPosition
+  SongPosition,
+  SysEx
 };
 
 struct MidiEvent {
@@ -27,7 +28,7 @@ struct MidiEvent {
   uint8_t channel = 0;  // 0..15 for channel events
   uint8_t data1 = 0;
   uint8_t data2 = 0;
-  uint16_t value14 = 0;  // Pitch bend / SPP payload
+  uint16_t value14 = 0;  // Pitch bend / SPP payload, or SysEx byte length when type==SysEx
 };
 
 class MidiIngressParser {
@@ -40,11 +41,17 @@ class MidiIngressParser {
   uint8_t pendingStatus_ = 0;
   uint8_t dataBuf_[2] = {0, 0};
   uint8_t dataCount_ = 0;
+  bool sysexCollecting_ = false;
+  bool sysexOverflow_ = false;
+  uint16_t sysexLen_ = 0;
 };
 
 bool midiEventIsChannelVoice(const MidiEvent& ev);
 bool midiEventIsRealtime(const MidiEvent& ev);
 uint8_t midiSourceToRoute(MidiSource src);  // 1=USB, 2=Bluetooth, 3=DIN
+
+/// Last completed SysEx payload (`F0` … `F7` inclusive). Valid until the next SysEx completes.
+const uint8_t* midiIngressLastSysexPayload();
 
 /// Poll USB MIDI bytes (currently USB CDC serial stream) and emit one event at a time.
 bool midiIngressPollUsb(MidiIngressParser& parser, MidiEvent* out);
