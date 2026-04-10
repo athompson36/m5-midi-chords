@@ -437,6 +437,44 @@ bool parseProjectBuf(char* buf, ChordModel& m, uint8_t seqPattern[3][16], uint8_
       }
       continue;
     }
+    if (seqExtras && strncmp(line, "seqAo:", 6) == 0) {
+      uint8_t flat[48];
+      if (parseHex48(line + 6, flat)) {
+        memcpy(sx.arpOctRange, flat, 48);
+        for (int L = 0; L < 3; ++L) {
+          for (int i = 0; i < 16; ++i) {
+            sx.arpOctRange[L][i] = sx.arpOctRange[L][i] > 2 ? 2 : sx.arpOctRange[L][i];
+          }
+        }
+      }
+      continue;
+    }
+    if (seqExtras && strncmp(line, "seqAg:", 6) == 0) {
+      uint8_t flat[48];
+      if (parseHex48(line + 6, flat)) {
+        memcpy(sx.arpGatePct, flat, 48);
+        for (int L = 0; L < 3; ++L) {
+          for (int i = 0; i < 16; ++i) {
+            if (sx.arpGatePct[L][i] < 10) sx.arpGatePct[L][i] = 10;
+            if (sx.arpGatePct[L][i] > 100) sx.arpGatePct[L][i] = 100;
+          }
+        }
+      }
+      continue;
+    }
+    if (seqExtras && strncmp(line, "seqV:", 5) == 0) {
+      uint8_t flat[48];
+      if (parseHex48(line + 5, flat)) {
+        memcpy(sx.stepVoicing, flat, 48);
+        for (int L = 0; L < 3; ++L) {
+          for (int i = 0; i < 16; ++i) {
+            if (sx.stepVoicing[L][i] < 1) sx.stepVoicing[L][i] = 1;
+            if (sx.stepVoicing[L][i] > 4) sx.stepVoicing[L][i] = 4;
+          }
+        }
+      }
+      continue;
+    }
   }
 
   if (km < 0 || km >= static_cast<int>(KeyMode::kCount)) {
@@ -690,6 +728,42 @@ bool sdBackupWriteProject(const ChordModel& m, const uint8_t seqPattern[3][16], 
     for (int k = 0, L = 0; L < 3 && ok; ++L) {
       for (int i = 0; i < 16 && ok; ++i) {
         snprintf(line, sizeof(line), "%02X", seqExtras->arpClockDiv[L][i] & 0x03U);
+        ok = writeAll(f, line);
+        if (k < 47) ok = ok && writeAll(f, ",");
+        ++k;
+      }
+    }
+    ok = ok && writeAll(f, "\n");
+    ok = ok && writeAll(f, "seqAo:");
+    for (int k = 0, L = 0; L < 3 && ok; ++L) {
+      for (int i = 0; i < 16 && ok; ++i) {
+        snprintf(line, sizeof(line), "%02X", seqExtras->arpOctRange[L][i] > 2 ? 2 : seqExtras->arpOctRange[L][i]);
+        ok = writeAll(f, line);
+        if (k < 47) ok = ok && writeAll(f, ",");
+        ++k;
+      }
+    }
+    ok = ok && writeAll(f, "\n");
+    ok = ok && writeAll(f, "seqAg:");
+    for (int k = 0, L = 0; L < 3 && ok; ++L) {
+      for (int i = 0; i < 16 && ok; ++i) {
+        uint8_t gate = seqExtras->arpGatePct[L][i];
+        if (gate < 10) gate = 10;
+        if (gate > 100) gate = 100;
+        snprintf(line, sizeof(line), "%02X", gate);
+        ok = writeAll(f, line);
+        if (k < 47) ok = ok && writeAll(f, ",");
+        ++k;
+      }
+    }
+    ok = ok && writeAll(f, "\n");
+    ok = ok && writeAll(f, "seqV:");
+    for (int k = 0, L = 0; L < 3 && ok; ++L) {
+      for (int i = 0; i < 16 && ok; ++i) {
+        uint8_t vo = seqExtras->stepVoicing[L][i];
+        if (vo < 1) vo = 1;
+        if (vo > 4) vo = 4;
+        snprintf(line, sizeof(line), "%02X", vo);
         ok = writeAll(f, line);
         if (k < 47) ok = ok && writeAll(f, ",");
         ++k;

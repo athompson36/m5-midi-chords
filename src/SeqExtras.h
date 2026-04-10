@@ -20,6 +20,12 @@ struct SeqExtras {
   uint8_t arpPattern[3][16];
   /// Per-step arp clock division enum (0..3 = 1x/2x/4x/8x).
   uint8_t arpClockDiv[3][16];
+  /// Per-step arp octave range (0..2 => 0/1/2 octave spread).
+  uint8_t arpOctRange[3][16];
+  /// Per-step arp gate percent (10..100).
+  uint8_t arpGatePct[3][16];
+  /// Per-step voicing cap (1..4).
+  uint8_t stepVoicing[3][16];
 };
 
 void seqExtrasInitDefaults(SeqExtras* e);

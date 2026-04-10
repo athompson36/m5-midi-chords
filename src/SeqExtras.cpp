@@ -13,6 +13,9 @@ void seqExtrasInitDefaults(SeqExtras* e) {
       e->arpEnabled[L][i] = 0;
       e->arpPattern[L][i] = 0;
       e->arpClockDiv[L][i] = 0;
+      e->arpOctRange[L][i] = 0;
+      e->arpGatePct[L][i] = 80;
+      e->stepVoicing[L][i] = 4;
     }
   }
 }

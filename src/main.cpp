@@ -175,6 +175,20 @@ static bool s_seqSelectHeld = false;
 static int s_seqChordDropStep = -1;
 static int s_seqChordDropTouchStartX = 0;
 static int s_seqChordDropTouchStartY = 0;
+static int s_seqChordDropScroll = 0;
+static int s_seqChordDropDragLastY = -1;
+static int s_seqChordDropFingerScrollCount = 0;
+static int s_seqStepEditStep = -1;
+static bool s_seqStepEditJustOpened = false;
+static Rect g_seqStepEditPanel{};
+static Rect g_seqStepEditVoMinus{}, g_seqStepEditVoPlus{};
+static Rect g_seqStepEditPatMinus{}, g_seqStepEditPatPlus{};
+static Rect g_seqStepEditRateMinus{}, g_seqStepEditRatePlus{};
+static Rect g_seqStepEditOctMinus{}, g_seqStepEditOctPlus{};
+static Rect g_seqStepEditGateMinus{}, g_seqStepEditGatePlus{};
+static Rect g_seqStepEditArpToggle{};
+static Rect g_seqStepEditDone{};
+static Rect g_seqStepEditDelete{};
 static int8_t s_shiftSeqFocusStep = -1;
 static int8_t s_shiftSeqFocusStepByLane[3] = {-1, -1, -1};
 static uint8_t s_shiftSeqFocusField = 0;  // 0 Div, 1 Arp, 2 Pat, 3 ADiv
@@ -494,6 +508,9 @@ struct SeqArpLaneRuntime {
   uint32_t nextMs = 0;
   uint32_t endMs = 0;
   uint32_t intervalMs = 1;
+  uint8_t gatePct = 80;
+  bool noteActive = false;
+  uint32_t noteOffMs = 0;
 };
 
 static SeqArpLaneRuntime s_seqArpRt[3];
@@ -505,6 +522,7 @@ static void seqArpStopLane(uint8_t lane, bool silence) {
     midiSilenceLastChord(rt.channel0 & 0x0F);
   }
   rt.active = false;
+  rt.noteActive = false;
   rt.orderCount = 0;
   rt.emitPos = 0;
 }
@@ -543,18 +561,34 @@ static void seqArpProcessDue(uint32_t nowMs) {
   for (uint8_t lane = 0; lane < 3; ++lane) {
     SeqArpLaneRuntime& rt = s_seqArpRt[lane];
     if (!rt.active) continue;
+    if (rt.noteActive && static_cast<int32_t>(nowMs - rt.noteOffMs) >= 0) {
+      midiSilenceLastChord(rt.channel0 & 0x0F);
+      rt.noteActive = false;
+    }
     while (rt.active && static_cast<int32_t>(nowMs - rt.nextMs) >= 0) {
       if (rt.emitPos >= rt.orderCount || static_cast<int32_t>(rt.nextMs - rt.endMs) >= 0) {
+        if (rt.noteActive) {
+          midiSilenceLastChord(rt.channel0 & 0x0F);
+          rt.noteActive = false;
+        }
         rt.active = false;  // Truncate policy: never spill into next step.
         break;
       }
       const uint8_t idx = rt.orderIdx[rt.emitPos];
       if (idx >= rt.noteCount) {
+        if (rt.noteActive) {
+          midiSilenceLastChord(rt.channel0 & 0x0F);
+          rt.noteActive = false;
+        }
         rt.active = false;
         break;
       }
       midiSilenceLastChord(rt.channel0 & 0x0F);
       midiSendNoteOnTracked(rt.channel0 & 0x0F, rt.notes[idx], applyOutputVelocityCurve(g_settings.outputVelocity));
+      rt.noteActive = true;
+      uint32_t gateMs = (rt.intervalMs * static_cast<uint32_t>(rt.gatePct)) / 100U;
+      if (gateMs == 0) gateMs = 1;
+      rt.noteOffMs = rt.nextMs + gateMs;
       rt.emitPos++;
       rt.nextMs += rt.intervalMs;
     }
@@ -593,7 +627,10 @@ static void transportEmitSequencerStepMidi(uint8_t step) {
       }
     }
 
-    uint8_t vcap = g_chordVoicing;
+    uint8_t vcap = g_seqExtras.stepVoicing[lane][step & 0x0F];
+    if (vcap < 1 || vcap > 4) {
+      vcap = g_chordVoicing;
+    }
     if (vcap < 1) vcap = 1;
     if (vcap > 4) vcap = 4;
     const uint8_t vel = applyOutputVelocityCurve(g_settings.outputVelocity);
@@ -623,7 +660,16 @@ static void transportEmitSequencerStepMidi(uint8_t step) {
       rt.channel0 = ch0;
       rt.noteCount = oc;
       for (uint8_t i = 0; i < oc; ++i) {
-        int note = rootMidi + static_cast<int>(ordered[i]) + static_cast<int>(g_settings.transposeSemitones);
+        const int octSpread = static_cast<int>(g_seqExtras.arpOctRange[lane][step & 0x0F] > 2
+                                                   ? 2
+                                                   : g_seqExtras.arpOctRange[lane][step & 0x0F]);
+        int octAdd = 0;
+        if (octSpread > 0) {
+          const int span = octSpread * 2 + 1;
+          octAdd = (rand() % span) - octSpread;
+        }
+        int note = rootMidi + static_cast<int>(ordered[i]) + static_cast<int>(g_settings.transposeSemitones) +
+                   (12 * octAdd);
         if (note < 0) note = 0;
         if (note > 127) note = 127;
         rt.notes[i] = static_cast<uint8_t>(note);
@@ -640,6 +686,11 @@ static void transportEmitSequencerStepMidi(uint8_t step) {
       rt.endMs = rt.nextMs + (stepWindowMs == 0 ? 1U : stepWindowMs);
       rt.intervalMs = stepWindowMs / rt.orderCount;
       if (rt.intervalMs == 0) rt.intervalMs = 1;
+      rt.gatePct = g_seqExtras.arpGatePct[lane][step & 0x0F];
+      if (rt.gatePct < 10) rt.gatePct = 10;
+      if (rt.gatePct > 100) rt.gatePct = 100;
+      rt.noteActive = false;
+      rt.noteOffMs = 0;
       rt.active = true;
       if (primaryLive < 0 && lane == selectedLane && cell < ChordModel::kSurroundCount) {
         primaryLive = static_cast<int8_t>(cell);
@@ -2033,6 +2084,119 @@ static int seqChordDropItemCount() {
   return 11;  // 8 surrounds + tie + rest + optional surprise pool token
 }
 
+static int seqChordDropVisibleRows(int h) {
+  const int maxH = h - kBezelBarH - 12;
+  constexpr int rowH = 28;
+  int vis = max(3, maxH / rowH);
+  const int items = seqChordDropItemCount();
+  if (vis > items) vis = items;
+  return vis;
+}
+
+static void seqChordDropComputeLayout(int w, int h, int* outX, int* outY, int* outW, int* outRowH, int* outVis) {
+  constexpr int rowH = 28;
+  const int vis = seqChordDropVisibleRows(h);
+  const int totalH = rowH * vis;
+  const int dropW = min(172, max(136, w - 20));
+  const Rect& anchor = g_seqCellRects[s_seqChordDropStep];
+  int dx = anchor.x + anchor.w / 2 - dropW / 2;
+  if (dx < 8) dx = 8;
+  if (dx + dropW > w - 8) dx = w - 8 - dropW;
+  int dy = (h - kBezelBarH - totalH) / 2;
+  if (dy < 4) dy = 4;
+  *outX = dx;
+  *outY = dy;
+  *outW = dropW;
+  *outRowH = rowH;
+  *outVis = vis;
+}
+
+static void seqStepEditComputeLayout(int w, int h) {
+  const int pw = min(w - 12, 228);
+  const int ph = 188;
+  const int px = (w - pw) / 2;
+  const int py = max(4, (h - kBezelBarH - ph) / 2);
+  g_seqStepEditPanel = {px, py, pw, ph};
+  const int rowVo = py + 22;
+  const int rowArp = py + 44;
+  const int rowPat = py + 66;
+  const int rowRate = py + 88;
+  const int rowOct = py + 110;
+  const int rowGate = py + 132;
+  g_seqStepEditVoMinus = {px + 8, rowVo, 28, 20};
+  g_seqStepEditVoPlus = {px + pw - 36, rowVo, 28, 20};
+  g_seqStepEditArpToggle = {px + pw / 2 - 34, rowArp, 68, 20};
+  g_seqStepEditPatMinus = {px + 8, rowPat, 28, 20};
+  g_seqStepEditPatPlus = {px + pw - 36, rowPat, 28, 20};
+  g_seqStepEditRateMinus = {px + 8, rowRate, 28, 20};
+  g_seqStepEditRatePlus = {px + pw - 36, rowRate, 28, 20};
+  g_seqStepEditOctMinus = {px + 8, rowOct, 28, 20};
+  g_seqStepEditOctPlus = {px + pw - 36, rowOct, 28, 20};
+  g_seqStepEditGateMinus = {px + 8, rowGate, 28, 20};
+  g_seqStepEditGatePlus = {px + pw - 36, rowGate, 28, 20};
+  g_seqStepEditDelete = {px + 14, py + ph - 24, 76, 18};
+  g_seqStepEditDone = {px + pw - 90, py + ph - 24, 76, 18};
+}
+
+static void drawSeqStepEditPopup() {
+  if (s_seqStepEditStep < 0 || s_seqStepEditStep >= 16) return;
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  seqStepEditComputeLayout(w, h);
+  const uint8_t lane = seqLaneClamped();
+  const int step = s_seqStepEditStep;
+  uint8_t vo = g_seqExtras.stepVoicing[lane][step];
+  if (vo < 1) vo = 1;
+  if (vo > 4) vo = 4;
+  const bool arpOn = g_seqExtras.arpEnabled[lane][step] != 0U;
+  const uint8_t pat = g_seqExtras.arpPattern[lane][step] & 0x03U;
+  const uint8_t rate = g_seqExtras.arpClockDiv[lane][step] & 0x03U;
+  const uint8_t oct = g_seqExtras.arpOctRange[lane][step] > 2 ? 2 : g_seqExtras.arpOctRange[lane][step];
+  uint8_t gate = g_seqExtras.arpGatePct[lane][step];
+  if (gate < 10) gate = 10;
+  if (gate > 100) gate = 100;
+
+  M5.Display.fillRoundRect(g_seqStepEditPanel.x, g_seqStepEditPanel.y, g_seqStepEditPanel.w, g_seqStepEditPanel.h, 8,
+                           g_uiPalette.panelMuted);
+  M5.Display.drawRoundRect(g_seqStepEditPanel.x, g_seqStepEditPanel.y, g_seqStepEditPanel.w, g_seqStepEditPanel.h, 8,
+                           g_uiPalette.settingsBtnBorder);
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextDatum(top_center);
+  M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.panelMuted);
+  char hdr[24];
+  snprintf(hdr, sizeof(hdr), "Step %u", (unsigned)(step + 1));
+  M5.Display.drawString(hdr, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditPanel.y + 4);
+
+  drawRoundedButton(g_seqStepEditVoMinus, g_uiPalette.accentPress, "-", 2);
+  drawRoundedButton(g_seqStepEditVoPlus, g_uiPalette.accentPress, "+", 2);
+  drawRoundedButton(g_seqStepEditArpToggle, arpOn ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted,
+                    arpOn ? "ARP On" : "ARP Off", 1);
+  drawRoundedButton(g_seqStepEditPatMinus, g_uiPalette.accentPress, "-", 2);
+  drawRoundedButton(g_seqStepEditPatPlus, g_uiPalette.accentPress, "+", 2);
+  drawRoundedButton(g_seqStepEditRateMinus, g_uiPalette.accentPress, "-", 2);
+  drawRoundedButton(g_seqStepEditRatePlus, g_uiPalette.accentPress, "+", 2);
+  drawRoundedButton(g_seqStepEditOctMinus, g_uiPalette.accentPress, "-", 2);
+  drawRoundedButton(g_seqStepEditOctPlus, g_uiPalette.accentPress, "+", 2);
+  drawRoundedButton(g_seqStepEditGateMinus, g_uiPalette.accentPress, "-", 2);
+  drawRoundedButton(g_seqStepEditGatePlus, g_uiPalette.accentPress, "+", 2);
+  drawRoundedButton(g_seqStepEditDelete, g_uiPalette.danger, "Delete", 1);
+  drawRoundedButton(g_seqStepEditDone, g_uiPalette.seqLaneTab, "Done", 1);
+
+  char line[40];
+  M5.Display.setTextDatum(middle_center);
+  snprintf(line, sizeof(line), "Voicing: V%u", (unsigned)vo);
+  M5.Display.drawString(line, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditVoMinus.y + 10);
+  snprintf(line, sizeof(line), "Pattern: %s", kArpPatLabs[pat]);
+  M5.Display.drawString(line, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditPatMinus.y + 10);
+  snprintf(line, sizeof(line), "Rate: %s", kStepDivLabs[rate]);
+  M5.Display.drawString(line, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditRateMinus.y + 10);
+  snprintf(line, sizeof(line), "Octave range: %u", (unsigned)oct);
+  M5.Display.drawString(line, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditOctMinus.y + 10);
+  snprintf(line, sizeof(line), "Gate: %u%%", (unsigned)gate);
+  M5.Display.drawString(line, g_seqStepEditPanel.x + g_seqStepEditPanel.w / 2, g_seqStepEditGateMinus.y + 10);
+}
+
 /// Multi-ring glow for the audible sequencer step while transport is playing (theme-tuned colors).
 static void drawSequencerActiveStepGlow(const Rect& r) {
   const int rad = max(4, r.h / 8);
@@ -2242,40 +2406,48 @@ void drawSequencerSurface(int fingerCell, bool fullClear) {
 
   if (s_seqChordDropStep >= 0 && s_seqChordDropStep < 16) {
     const int items = seqChordDropItemCount();
-    const int rowH = max(16, (h - kBezelBarH - 4) / items);
-    const int totalH = rowH * items;
-    const int dropW = 72;
-    const Rect& anchor = g_seqCellRects[s_seqChordDropStep];
-    int dx = anchor.x + anchor.w / 2 - dropW / 2;
-    if (dx < 2) dx = 2;
-    if (dx + dropW > w - 2) dx = w - 2 - dropW;
-    int dy = (h - kBezelBarH - totalH) / 2;
-    if (dy < 2) dy = 2;
-    M5.Display.fillRect(dx - 1, dy - 1, dropW + 2, totalH + 2, g_uiPalette.bg);
-    for (int r = 0; r < items; ++r) {
+    int dx, dy, dropW, rowH, vis;
+    seqChordDropComputeLayout(w, h, &dx, &dy, &dropW, &rowH, &vis);
+    if (s_seqChordDropScroll < 0) s_seqChordDropScroll = 0;
+    if (s_seqChordDropScroll + vis > items) s_seqChordDropScroll = max(0, items - vis);
+    const int totalH = rowH * vis;
+    M5.Display.fillRect(dx - 2, dy - 2, dropW + 4, totalH + 4, g_uiPalette.bg);
+    for (int r = 0; r < vis; ++r) {
+      const int itemIdx = s_seqChordDropScroll + r;
       const Rect dr = {dx, dy + r * rowH, dropW, rowH};
       const char* lab;
-      if (r < 8) {
-        lab = g_model.surround[r].name;
-      } else if (r == 8) {
+      if (itemIdx < 8) {
+        lab = g_model.surround[itemIdx].name;
+      } else if (itemIdx == 8) {
         lab = "~ tie";
-      } else if (r == 9) {
+      } else if (itemIdx == 9) {
         lab = "- rest";
       } else {
         lab = "S? surprise";
       }
       uint16_t bg;
-      if (r < 8) {
-        bg = colorForRole(g_model.surround[r].role);
-      } else if (r == 8) {
+      if (itemIdx < 8) {
+        bg = colorForRole(g_model.surround[itemIdx].role);
+      } else if (itemIdx == 8) {
         bg = g_uiPalette.seqTie;
-      } else if (r == 9) {
+      } else if (itemIdx == 9) {
         bg = g_uiPalette.seqRest;
       } else {
         bg = g_uiPalette.surprise;
       }
       drawRoundedButton(dr, bg, lab, 1);
     }
+    if (items > vis) {
+      const int railX = dx + dropW - 3;
+      M5.Display.drawFastVLine(railX, dy, totalH, g_uiPalette.subtle);
+      const int thumbH = max(14, (totalH * vis) / items);
+      const int thumbY = dy + ((totalH - thumbH) * s_seqChordDropScroll) / max(1, items - vis);
+      M5.Display.fillRect(railX - 1, thumbY, 3, thumbH, g_uiPalette.rowNormal);
+    }
+  }
+
+  if (s_seqStepEditStep >= 0 && s_seqStepEditStep < 16) {
+    drawSeqStepEditPopup();
   }
 
   // No top-right battery / link glyphs here — sequencer grid needs the horizontal space.
@@ -3250,21 +3422,14 @@ bool tryEnterSettingsTwoFingerLong(uint8_t touchCount, int w, int h) {
 
 int hitTestSeqChordDrop(int px, int py) {
   if (s_seqChordDropStep < 0 || s_seqChordDropStep >= 16) return -1;
-  const int w = M5.Display.width();
-  const int h = M5.Display.height();
   const int items = seqChordDropItemCount();
-  const int rowH = max(16, (h - kBezelBarH - 4) / items);
-  const int totalH = rowH * items;
-  const int dropW = 72;
-  const Rect& anchor = g_seqCellRects[s_seqChordDropStep];
-  int dx = anchor.x + anchor.w / 2 - dropW / 2;
-  if (dx < 2) dx = 2;
-  if (dx + dropW > w - 2) dx = w - 2 - dropW;
-  int dy = (h - kBezelBarH - totalH) / 2;
-  if (dy < 2) dy = 2;
-  for (int r = 0; r < items; ++r) {
+  int dx, dy, dropW, rowH, vis;
+  seqChordDropComputeLayout(M5.Display.width(), M5.Display.height(), &dx, &dy, &dropW, &rowH, &vis);
+  if (s_seqChordDropScroll < 0) s_seqChordDropScroll = 0;
+  if (s_seqChordDropScroll + vis > items) s_seqChordDropScroll = max(0, items - vis);
+  for (int r = 0; r < vis; ++r) {
     if (px >= dx && px < dx + dropW && py >= dy + r * rowH && py < dy + (r + 1) * rowH) {
-      return r;
+      return s_seqChordDropScroll + r;
     }
   }
   return -1;
@@ -3326,6 +3491,32 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
       s_seqChordDropTouchStartX = d.x;
       s_seqChordDropTouchStartY = d.y;
     }
+    if (s_seqChordDropStep >= 0 && d.isPressed()) {
+      if (s_seqChordDropDragLastY >= 0) {
+        const int delta = d.y - s_seqChordDropDragLastY;
+        if (delta > 18) {
+          if (s_seqChordDropScroll > 0) {
+            --s_seqChordDropScroll;
+            ++s_seqChordDropFingerScrollCount;
+            drawSequencerSurface(-1, false);
+          }
+          s_seqChordDropDragLastY = d.y;
+        } else if (delta < -18) {
+          const int vis = seqChordDropVisibleRows(h);
+          const int cnt = seqChordDropItemCount();
+          if (s_seqChordDropScroll + vis < cnt) {
+            ++s_seqChordDropScroll;
+            ++s_seqChordDropFingerScrollCount;
+            drawSequencerSurface(-1, false);
+          }
+          s_seqChordDropDragLastY = d.y;
+        }
+      } else {
+        s_seqChordDropDragLastY = d.y;
+      }
+    } else {
+      s_seqChordDropDragLastY = -1;
+    }
     if (s_shiftActive && d.isPressed()) {
       if (pointInRect(d.x, d.y, g_bezelBack)) {
         wasTouchActive = true;
@@ -3363,7 +3554,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
           s_seqLongPressHandled = false;
         }
         if (!s_seqLongPressHandled && now - s_seqStepDownMs >= seqLongPressMs()) {
-          g_seqPattern[g_seqLane][ht] = kSeqRest;
+          s_seqStepEditStep = ht;
+          s_seqStepEditJustOpened = true;
           s_seqLongPressHandled = true;
           drawSequencerSurface(-1, false);
         }
@@ -3412,6 +3604,103 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
     const int hx = g_lastTouchX;
     const int hy = g_lastTouchY;
 
+    if (s_seqStepEditStep >= 0) {
+      seqStepEditComputeLayout(w, h);
+      if (s_seqStepEditJustOpened) {
+        // Ignore the release that ends the long-press gesture used to open the popup.
+        s_seqStepEditJustOpened = false;
+        drawSequencerSurface(-1, false);
+        return;
+      }
+      if (pointInRect(hx, hy, g_seqStepEditDone) || pointInRect(hx, hy, g_bezelSelect) ||
+          pointInRect(hx, hy, g_bezelBack) || pointInRect(hx, hy, g_bezelFwd)) {
+        s_seqStepEditStep = -1;
+        s_seqStepEditJustOpened = false;
+        seqExtrasSave(&g_seqExtras);
+        drawSequencerSurface(-1, false);
+        return;
+      }
+      const uint8_t lane = seqLaneClamped();
+      const int step = s_seqStepEditStep;
+      bool changed = false;
+      if (pointInRect(hx, hy, g_seqStepEditDelete)) {
+        g_seqPattern[lane][step] = kSeqRest;
+        s_seqStepEditStep = -1;
+        s_seqStepEditJustOpened = false;
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditVoMinus)) {
+        uint8_t v = g_seqExtras.stepVoicing[lane][step];
+        if (v > 1) {
+          --v;
+          g_seqExtras.stepVoicing[lane][step] = v;
+          changed = true;
+        }
+      } else if (pointInRect(hx, hy, g_seqStepEditVoPlus)) {
+        uint8_t v = g_seqExtras.stepVoicing[lane][step];
+        if (v < 4) {
+          ++v;
+          g_seqExtras.stepVoicing[lane][step] = v;
+          changed = true;
+        }
+      } else if (pointInRect(hx, hy, g_seqStepEditArpToggle)) {
+        g_seqExtras.arpEnabled[lane][step] = g_seqExtras.arpEnabled[lane][step] ? 0U : 1U;
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditPatMinus)) {
+        int v = static_cast<int>(g_seqExtras.arpPattern[lane][step] & 0x03U) - 1;
+        if (v < 0) v = 3;
+        g_seqExtras.arpPattern[lane][step] = static_cast<uint8_t>(v);
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditPatPlus)) {
+        int v = static_cast<int>(g_seqExtras.arpPattern[lane][step] & 0x03U) + 1;
+        if (v > 3) v = 0;
+        g_seqExtras.arpPattern[lane][step] = static_cast<uint8_t>(v);
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditRateMinus)) {
+        int v = static_cast<int>(g_seqExtras.arpClockDiv[lane][step] & 0x03U) - 1;
+        if (v < 0) v = 3;
+        g_seqExtras.arpClockDiv[lane][step] = static_cast<uint8_t>(v);
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditRatePlus)) {
+        int v = static_cast<int>(g_seqExtras.arpClockDiv[lane][step] & 0x03U) + 1;
+        if (v > 3) v = 0;
+        g_seqExtras.arpClockDiv[lane][step] = static_cast<uint8_t>(v);
+        changed = true;
+      } else if (pointInRect(hx, hy, g_seqStepEditOctMinus)) {
+        uint8_t v = g_seqExtras.arpOctRange[lane][step];
+        if (v > 0) {
+          --v;
+          g_seqExtras.arpOctRange[lane][step] = v;
+          changed = true;
+        }
+      } else if (pointInRect(hx, hy, g_seqStepEditOctPlus)) {
+        uint8_t v = g_seqExtras.arpOctRange[lane][step];
+        if (v < 2) {
+          ++v;
+          g_seqExtras.arpOctRange[lane][step] = v;
+          changed = true;
+        }
+      } else if (pointInRect(hx, hy, g_seqStepEditGateMinus)) {
+        int v = static_cast<int>(g_seqExtras.arpGatePct[lane][step]) - 5;
+        if (v < 10) v = 10;
+        if (v != g_seqExtras.arpGatePct[lane][step]) {
+          g_seqExtras.arpGatePct[lane][step] = static_cast<uint8_t>(v);
+          changed = true;
+        }
+      } else if (pointInRect(hx, hy, g_seqStepEditGatePlus)) {
+        int v = static_cast<int>(g_seqExtras.arpGatePct[lane][step]) + 5;
+        if (v > 100) v = 100;
+        if (v != g_seqExtras.arpGatePct[lane][step]) {
+          g_seqExtras.arpGatePct[lane][step] = static_cast<uint8_t>(v);
+          changed = true;
+        }
+      }
+      if (changed) {
+        seqExtrasSave(&g_seqExtras);
+      }
+      drawSequencerSurface(-1, false);
+      return;
+    }
+
     if (s_seqGestureMaxTouches >= 2 && s_seqComboTab >= 0) {
       uint8_t ch = g_seqMidiCh[s_seqComboTab];
       ch = static_cast<uint8_t>((ch % 16) + 1);
@@ -3432,6 +3721,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
       s_seqGestureMaxTouches = 0;
       s_seqComboTab = -1;
       s_seqChordDropStep = -1;
+      s_seqChordDropDragLastY = -1;
+      s_seqChordDropFingerScrollCount = 0;
       s_seqSelectHeld = false;
       navigateMainRing(-1);
       return;
@@ -3445,6 +3736,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
       s_seqGestureMaxTouches = 0;
       s_seqComboTab = -1;
       s_seqChordDropStep = -1;
+      s_seqChordDropDragLastY = -1;
+      s_seqChordDropFingerScrollCount = 0;
       s_seqSelectHeld = false;
       navigateMainRing(1);
       return;
@@ -3459,6 +3752,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
       s_seqGestureMaxTouches = 0;
       s_seqComboTab = -1;
       s_seqChordDropStep = -1;
+      s_seqChordDropDragLastY = -1;
+      s_seqChordDropFingerScrollCount = 0;
       if (maxT <= 1) s_seqSelectHeld = !s_seqSelectHeld;
       drawSequencerSurface(-1, false);
       return;
@@ -3468,13 +3763,16 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
     s_seqComboTab = -1;
 
     if (s_seqChordDropStep >= 0) {
+      const int fingerScrollsThisGesture = s_seqChordDropFingerScrollCount;
+      s_seqChordDropFingerScrollCount = 0;
+      s_seqChordDropDragLastY = -1;
       const int pick = hitTestSeqChordDrop(hx, hy);
       if (pick >= 0) {
         const bool haveAnchor =
             hitTestSeqChordDrop(s_seqChordDropTouchStartX, s_seqChordDropTouchStartY) >= 0;
         const bool movedPast = haveAnchor && touchMovedPastSuppressThreshold(
                                                 s_seqChordDropTouchStartX, s_seqChordDropTouchStartY, hx, hy);
-        if (!movedPast) {
+        if (!movedPast && fingerScrollsThisGesture == 0) {
           uint8_t v;
           if (pick < 8) v = static_cast<uint8_t>(pick);
           else if (pick == 8) v = kSeqTie;
@@ -3556,6 +3854,19 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
         return;
       }
       s_seqChordDropStep = cell;
+      s_seqChordDropDragLastY = -1;
+      s_seqChordDropFingerScrollCount = 0;
+      const int items = seqChordDropItemCount();
+      const int vis = seqChordDropVisibleRows(h);
+      uint8_t cur = g_seqPattern[g_seqLane][cell];
+      int curIdx = 0;
+      if (cur <= 7) curIdx = static_cast<int>(cur);
+      else if (cur == kSeqTie) curIdx = 8;
+      else if (cur == kSeqRest) curIdx = 9;
+      else curIdx = 10;
+      s_seqChordDropScroll = curIdx - vis / 2;
+      if (s_seqChordDropScroll < 0) s_seqChordDropScroll = 0;
+      if (s_seqChordDropScroll + vis > items) s_seqChordDropScroll = max(0, items - vis);
       s_seqChordDropTouchStartX = -9999;
       s_seqChordDropTouchStartY = -9999;
       drawSequencerSurface(-1, false);

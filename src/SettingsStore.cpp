@@ -316,7 +316,7 @@ void seqExtrasLoad(SeqExtras* out) {
   if (!p.begin(kNs, true)) return;
   const size_t n = p.getBytesLength("seqEx");
   if (n >= 58) {
-    uint8_t buf[210];
+    uint8_t buf[394];
     const size_t readN = n > sizeof(buf) ? sizeof(buf) : n;
     p.getBytes("seqEx", buf, readN);
     if (buf[0] == 1 && readN >= 58) {
@@ -357,14 +357,74 @@ void seqExtrasLoad(SeqExtras* out) {
           out->arpClockDiv[L][i] &= 0x03U;
         }
       }
+    } else if (buf[0] == 3 && readN >= 346) {
+      for (int L = 0; L < 3; ++L) {
+        out->quantizePct[L] = buf[1 + L];
+        out->swingPct[L] = buf[4 + L];
+        out->chordRandPct[L] = buf[7 + L];
+        if (out->quantizePct[L] > 100) out->quantizePct[L] = 100;
+        if (out->swingPct[L] > 100) out->swingPct[L] = 100;
+        if (out->chordRandPct[L] > 100) out->chordRandPct[L] = 100;
+      }
+      memcpy(out->stepProb, buf + 10, 48);
+      memcpy(out->stepClockDiv, buf + 58, 48);
+      memcpy(out->arpEnabled, buf + 106, 48);
+      memcpy(out->arpPattern, buf + 154, 48);
+      memcpy(out->arpClockDiv, buf + 202, 48);
+      memcpy(out->arpOctRange, buf + 250, 48);
+      memcpy(out->arpGatePct, buf + 298, 48);
+      for (int L = 0; L < 3; ++L) {
+        for (int i = 0; i < 16; ++i) {
+          if (out->stepProb[L][i] > 100) out->stepProb[L][i] = 100;
+          out->stepClockDiv[L][i] &= 0x03U;
+          out->arpEnabled[L][i] = out->arpEnabled[L][i] ? 1U : 0U;
+          out->arpPattern[L][i] &= 0x03U;
+          out->arpClockDiv[L][i] &= 0x03U;
+          out->arpOctRange[L][i] = out->arpOctRange[L][i] > 2 ? 2 : out->arpOctRange[L][i];
+          if (out->arpGatePct[L][i] < 10) out->arpGatePct[L][i] = 10;
+          if (out->arpGatePct[L][i] > 100) out->arpGatePct[L][i] = 100;
+          out->stepVoicing[L][i] = 4;
+        }
+      }
+    } else if (buf[0] == 4 && readN >= 394) {
+      for (int L = 0; L < 3; ++L) {
+        out->quantizePct[L] = buf[1 + L];
+        out->swingPct[L] = buf[4 + L];
+        out->chordRandPct[L] = buf[7 + L];
+        if (out->quantizePct[L] > 100) out->quantizePct[L] = 100;
+        if (out->swingPct[L] > 100) out->swingPct[L] = 100;
+        if (out->chordRandPct[L] > 100) out->chordRandPct[L] = 100;
+      }
+      memcpy(out->stepProb, buf + 10, 48);
+      memcpy(out->stepClockDiv, buf + 58, 48);
+      memcpy(out->arpEnabled, buf + 106, 48);
+      memcpy(out->arpPattern, buf + 154, 48);
+      memcpy(out->arpClockDiv, buf + 202, 48);
+      memcpy(out->arpOctRange, buf + 250, 48);
+      memcpy(out->arpGatePct, buf + 298, 48);
+      memcpy(out->stepVoicing, buf + 346, 48);
+      for (int L = 0; L < 3; ++L) {
+        for (int i = 0; i < 16; ++i) {
+          if (out->stepProb[L][i] > 100) out->stepProb[L][i] = 100;
+          out->stepClockDiv[L][i] &= 0x03U;
+          out->arpEnabled[L][i] = out->arpEnabled[L][i] ? 1U : 0U;
+          out->arpPattern[L][i] &= 0x03U;
+          out->arpClockDiv[L][i] &= 0x03U;
+          out->arpOctRange[L][i] = out->arpOctRange[L][i] > 2 ? 2 : out->arpOctRange[L][i];
+          if (out->arpGatePct[L][i] < 10) out->arpGatePct[L][i] = 10;
+          if (out->arpGatePct[L][i] > 100) out->arpGatePct[L][i] = 100;
+          if (out->stepVoicing[L][i] < 1) out->stepVoicing[L][i] = 1;
+          if (out->stepVoicing[L][i] > 4) out->stepVoicing[L][i] = 4;
+        }
+      }
     }
   }
   p.end();
 }
 
 void seqExtrasSave(const SeqExtras* in) {
-  uint8_t buf[250];
-  buf[0] = 2;
+  uint8_t buf[394];
+  buf[0] = 4;
   for (int L = 0; L < 3; ++L) {
     buf[1 + L] = in->quantizePct[L] > 100 ? 100 : in->quantizePct[L];
     buf[4 + L] = in->swingPct[L] > 100 ? 100 : in->swingPct[L];
@@ -378,11 +438,20 @@ void seqExtrasSave(const SeqExtras* in) {
       buf[106 + idx] = in->arpEnabled[L][i] ? 1U : 0U;
       buf[154 + idx] = in->arpPattern[L][i] & 0x03U;
       buf[202 + idx] = in->arpClockDiv[L][i] & 0x03U;
+      buf[250 + idx] = in->arpOctRange[L][i] > 2 ? 2 : in->arpOctRange[L][i];
+      uint8_t gate = in->arpGatePct[L][i];
+      if (gate < 10) gate = 10;
+      if (gate > 100) gate = 100;
+      buf[298 + idx] = gate;
+      uint8_t vo = in->stepVoicing[L][i];
+      if (vo < 1) vo = 1;
+      if (vo > 4) vo = 4;
+      buf[346 + idx] = vo;
     }
   }
   Preferences p;
   if (!p.begin(kNs, false)) return;
-  p.putBytes("seqEx", buf, 250);
+  p.putBytes("seqEx", buf, 394);
   p.end();
 }
 
