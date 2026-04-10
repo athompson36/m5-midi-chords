@@ -21,3 +21,4 @@ Firmware routes MIDI over:
 
 - USB MIDI class enumeration and host compatibility need additional hardware matrix validation across phone/DAW hosts.
 - Final on-device validation matrix for all transports is still tracked in `docs/HARDWARE_E2E_CHECKLIST.md`.
+- **Transport clock OUT** uses the **single** route selected by **MIDI transport send** (USB, BLE, or DIN). Chord/CC output may still **broadcast** to multiple transports—if you need clock on BLE while notes go to USB, pick the matching route or see `docs/UI_UX_POLISH_BACKLOG.md` (clock fan-out backlog).

@@ -1,4 +1,5 @@
 #include <M5Unified.h>
+#include <WiFi.h>
 #include <esp_random.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,11 +130,12 @@ char g_settingsFeedback[48] = "";
 enum class SettingsConfirmAction : uint8_t { None, RestoreSd, ClearMidiDebug };
 SettingsConfirmAction g_settingsConfirmAction = SettingsConfirmAction::None;
 
-enum class SettingsPanel : uint8_t { Menu, Midi, Display, SeqArp, Storage };
+enum class SettingsPanel : uint8_t { Menu, Midi, Display, SeqArp, Storage, UserGuide };
 
 SettingsPanel g_settingsPanel = SettingsPanel::Menu;
 int g_settingsCursorRow = 0;
 int g_settingsListScroll = 0;
+static int g_userGuideScroll = 0;
 
 
 constexpr int kBezelBarH = 20;
@@ -170,6 +172,8 @@ static bool g_seqDraggingSlider = false;
 /// While Shift is active, top row of seq cells (0-3) shows tool picks.
 static bool s_seqSelectHeld = false;
 static int s_seqChordDropStep = -1;
+static int s_seqChordDropTouchStartX = 0;
+static int s_seqChordDropTouchStartY = 0;
 static int8_t s_shiftSeqFocusStep = -1;
 static int8_t s_shiftSeqFocusStepByLane[3] = {-1, -1, -1};
 static uint8_t s_shiftSeqFocusField = 0;  // 0 Div, 1 Arp, 2 Pat, 3 ADiv
@@ -300,11 +304,32 @@ XyComboTrack s_xyCombo{};
 static int s_playTouchDrawChord = -100;
 static bool s_playTouchDrawOnKey = false;
 static bool s_playTouchDrawVoicing = false;
+/// Last painted finger highlight (synced from partial redraws and full `drawPlaySurface`).
+static int s_playFingerVisualChord = -100;
+static bool s_playFingerVisualOnKey = false;
 static int s_lastSeqPreviewCell = -9999;
 static bool s_wasSeqMultiFinger = false;
 static int s_lastDrawnSeqComboTab = -99999;
 static int8_t s_settingsDropRowId = -1;
 static int s_settingsDropOptScroll = 0;
+static int s_settingsDropDragLastY = -1;
+static int s_settingsDropFingerScrollCount = 0;
+static int s_settingsTouchStartX = 0;
+static int s_settingsTouchStartY = 0;
+static int s_keyPickTouchStartX = 0;
+static int s_keyPickTouchStartY = 0;
+static int s_sdPickTouchStartX = 0;
+static int s_sdPickTouchStartY = 0;
+
+/// Movement past this distance from touch-down suppresses row pick (scroll vs tap).
+static constexpr int kUiScrollSuppressPickPx = 14;
+
+static bool touchMovedPastSuppressThreshold(int sx, int sy, int ex, int ey) {
+  const int dx = ex - sx;
+  const int dy = ey - sy;
+  const int t = kUiScrollSuppressPickPx;
+  return (static_cast<int32_t>(dx) * dx + static_cast<int32_t>(dy) * dy) > (t * t);
+}
 static int8_t s_xyTouchZone = -1;
 static bool s_xyTwoFingerSurfaceDrawn = false;
 static MidiIngressParser s_midiIngressParser;
@@ -679,6 +704,8 @@ void resetSettingsNav() {
   g_settingsListScroll = 0;
   s_settingsDropRowId = -1;
   s_settingsDropOptScroll = 0;
+  s_settingsDropDragLastY = -1;
+  s_settingsDropFingerScrollCount = 0;
   g_factoryResetConfirmArmed = false;
   g_settingsConfirmAction = SettingsConfirmAction::None;
   g_settingsRow = 0;
@@ -747,6 +774,115 @@ void drawBezelBarStrip() {
   M5.Display.drawString("BACK", g_bezelBack.x + g_bezelBack.w / 2, h - 2);
   M5.Display.drawString(s_shiftActive ? "SHIFT" : "SELECT", g_bezelSelect.x + g_bezelSelect.w / 2, h - 2);
   M5.Display.drawString("FWD", g_bezelFwd.x + g_bezelFwd.w / 2, h - 2);
+}
+
+// Top-right: battery + optional external BPM, then connection glyphs (USB, BLE, DIN, WiFi) when active.
+// DIN: wide hold so very slow / sparse MIDI clock (long gaps between 0xF8 ticks) still reads as active.
+static constexpr uint32_t kStatusDinTrafficHoldMs = 5000;
+
+static void drawStatusGlyphUsb(int x0, int y0, uint16_t c) {
+  M5.Display.drawRect(x0 + 2, y0 + 3, 4, 4, c);
+  M5.Display.drawFastVLine(x0 + 4, y0 + 1, 2, c);
+  M5.Display.drawFastHLine(x0 + 1, y0 + 7, 7, c);
+}
+
+static void drawStatusGlyphBle(int x0, int y0, uint16_t c) {
+  M5.Display.drawFastVLine(x0 + 4, y0 + 1, 6, c);
+  M5.Display.drawFastHLine(x0 + 1, y0 + 2, 4, c);
+  M5.Display.drawFastHLine(x0 + 1, y0 + 5, 4, c);
+  M5.Display.drawFastHLine(x0 + 5, y0 + 3, 3, c);
+}
+
+static void drawStatusGlyphDin(int x0, int y0, uint16_t c) {
+  M5.Display.drawCircle(x0 + 4, y0 + 4, 3, c);
+  M5.Display.drawFastVLine(x0 + 4, y0 + 7, 2, c);
+}
+
+static void drawStatusGlyphWifi(int x0, int y0, uint16_t c) {
+  M5.Display.fillRect(x0 + 4, y0 + 7, 1, 1, c);
+  M5.Display.drawPixel(x0 + 3, y0 + 6, c);
+  M5.Display.drawPixel(x0 + 5, y0 + 6, c);
+  M5.Display.drawPixel(x0 + 2, y0 + 5, c);
+  M5.Display.drawPixel(x0 + 6, y0 + 5, c);
+  M5.Display.drawPixel(x0 + 1, y0 + 4, c);
+  M5.Display.drawPixel(x0 + 7, y0 + 4, c);
+}
+
+static void drawTopSystemStatus(int w, int yTop, const char* extBpmText, uint16_t extBpmColor) {
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextDatum(top_right);
+  M5.Display.setTextSize(1);
+
+  int x = w - 4;
+  const uint16_t ink = g_uiPalette.rowNormal;
+
+  int32_t bat = M5.Power.getBatteryLevel();
+  if (bat < 0) {
+    bat = -1;
+  } else if (bat > 100) {
+    bat = 100;
+  }
+  uint16_t bcol = ink;
+  if (bat >= 0 && bat < 15) {
+    bcol = g_uiPalette.danger;
+  } else if (bat >= 0 && bat < 35) {
+    bcol = g_uiPalette.accentPress;
+  }
+
+  constexpr int kBw = 17;
+  constexpr int kBh = 7;
+  const int bx = x - kBw;
+  const int by = yTop + 1;
+  M5.Display.drawRect(bx, by, kBw, kBh, bcol);
+  M5.Display.fillRect(bx + kBw - 1, by + 2, 2, kBh - 4, bcol);
+  if (bat >= 0) {
+    const int innerW = kBw - 4;
+    const int fillW = max(0, innerW * static_cast<int>(bat) / 100);
+    if (fillW > 0) {
+      M5.Display.fillRect(bx + 2, by + 2, fillW, kBh - 4, bcol);
+    }
+  }
+  x = bx - 3;
+
+  char pct[8];
+  if (bat >= 0) {
+    snprintf(pct, sizeof(pct), "%d%%", static_cast<int>(bat));
+  } else {
+    snprintf(pct, sizeof(pct), "--");
+  }
+  M5.Display.setTextColor(bcol, g_uiPalette.bg);
+  const int pctW = M5.Display.textWidth(pct);
+  M5.Display.drawString(pct, x, yTop);
+  x -= pctW + 5;
+
+  if (extBpmText && extBpmText[0] != '\0') {
+    M5.Display.setTextColor(extBpmColor, g_uiPalette.bg);
+    const int bpmW = M5.Display.textWidth(extBpmText);
+    M5.Display.drawString(extBpmText, x, yTop);
+    x -= bpmW + 6;
+  }
+
+  const bool wifiOn = (WiFi.status() == WL_CONNECTED);
+  const bool dinOn = dinMidiRecentTraffic(kStatusDinTrafficHoldMs);
+  const bool bleOn = bleMidiConnected();
+  const bool usbOn = usbMidiHostConnected();
+
+  auto placeIcon = [&](void (*drawFn)(int, int, uint16_t)) {
+    drawFn(x - 9, yTop, ink);
+    x -= 10;
+  };
+  if (wifiOn) {
+    placeIcon(drawStatusGlyphWifi);
+  }
+  if (dinOn) {
+    placeIcon(drawStatusGlyphDin);
+  }
+  if (bleOn) {
+    placeIcon(drawStatusGlyphBle);
+  }
+  if (usbOn) {
+    placeIcon(drawStatusGlyphUsb);
+  }
 }
 
 static void updateShiftHoldState(uint8_t touchCount) {
@@ -912,8 +1048,8 @@ bool checkBezelLongPressSettings(uint8_t touchCount) {
 
 void computePlaySurfaceLayout(int w, int h) {
   layoutBottomBezels(w, h);
-  constexpr int hintH = 14;
-  constexpr int padAfterHint = 2;
+  constexpr int hintH = 0;
+  constexpr int padAfterHint = 4;
   constexpr int hGap = 4;
   constexpr int vGap = 2;
   const int gridTop = hintH + padAfterHint;
@@ -959,10 +1095,10 @@ static void playSetVoicingFromX(int px) {
 void computeSequencerLayout(int w, int h) {
   layoutBottomBezels(w, h);
   constexpr int margin = 4;
-  constexpr int hintH = 14;
+  constexpr int hintH = 0;
   constexpr int tabH = 20;
   constexpr int tabGap = 4;
-  const int tabY = hintH + 2;
+  const int tabY = hintH + 4;
   const int tabW = (w - margin * 2 - tabGap * 2) / 3;
   for (int t = 0; t < 3; ++t) {
     g_seqTabRects[t] = {margin + t * (tabW + tabGap), tabY, tabW, tabH};
@@ -1296,6 +1432,8 @@ static void playRedrawGridBand() {
   for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
     drawPlayChordCell(i, -100, true);
   }
+  s_playFingerVisualChord = -100;
+  s_playFingerVisualOnKey = false;
   if (s_playVoicingPanelOpen) {
     layoutPlayVoicingPanel(w, h);
     drawPlayVoicingPanelOverlay();
@@ -1324,6 +1462,63 @@ static void playRedrawClearFingerHighlight() {
   M5.Display.endWrite();
 }
 
+// Updates finger highlight on chord pads / key without full-panel fillRect (see §2 UI backlog).
+static void playRedrawFingerHighlightOnly(int fingerChord, bool fingerOnKey) {
+  if (transportIsCountIn() || transportIsRecordingLive() || s_playVoicingPanelOpen) {
+    drawPlaySurface(fingerChord, fingerOnKey);
+    return;
+  }
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  computePlaySurfaceLayout(w, h);
+
+  const bool showLpNew = fingerChord < -50;
+  const bool showLpOld = s_playFingerVisualChord < -50;
+  if (showLpNew != showLpOld) {
+    drawPlaySurface(fingerChord, fingerOnKey);
+    return;
+  }
+
+  const int oldFc = s_playFingerVisualChord;
+  const bool oldOk = s_playFingerVisualOnKey;
+  constexpr int kPad = 4;
+  const int maxY = h - kBezelBarH;
+
+  M5.Display.startWrite();
+  auto clearFill = [&](const Rect& r) {
+    const int x1 = max(0, r.x - kPad);
+    const int y1 = max(0, r.y - kPad);
+    const int x2 = min(w, r.x + r.w + kPad);
+    const int y2 = min(maxY, r.y + r.h + kPad);
+    if (x2 > x1 && y2 > y1) {
+      M5.Display.fillRect(x1, y1, x2 - x1, y2 - y1, g_uiPalette.bg);
+    }
+  };
+
+  if (oldOk != fingerOnKey) {
+    clearFill(g_keyRect);
+    drawPlayKeyCell(fingerOnKey, showLpNew);
+  }
+
+  bool chordMark[ChordModel::kSurroundCount] = {};
+  if (oldFc >= 0 && oldFc < ChordModel::kSurroundCount) {
+    chordMark[oldFc] = true;
+  }
+  if (fingerChord >= 0 && fingerChord < ChordModel::kSurroundCount) {
+    chordMark[fingerChord] = true;
+  }
+  for (int i = 0; i < ChordModel::kSurroundCount; ++i) {
+    if (!chordMark[i]) continue;
+    clearFill(g_chordRects[i]);
+    drawPlayChordCell(i, fingerChord, showLpNew);
+  }
+
+  s_playFingerVisualChord = fingerChord;
+  s_playFingerVisualOnKey = fingerOnKey;
+  drawBezelBarStrip();
+  M5.Display.endWrite();
+}
+
 // fingerChord: -100 = none, -2 = key, 0-7 = chord index (finger-down highlight)
 void drawPlaySurface(int fingerChord, bool fingerOnKey) {
   const int w = M5.Display.width();
@@ -1336,8 +1531,6 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
   M5.Display.setTextWrap(false);
   M5.Display.setTextDatum(top_left);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("BACK/FWD: Transport / Pad / Seq / XY   SELECT tap:key  hold:Shift", 4, 2);
 
   const bool showLp = fingerChord < -50;
   drawPlayKeyCell(fingerOnKey, showLp);
@@ -1373,7 +1566,7 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
     M5.Display.setTextDatum(top_left);
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
-    M5.Display.drawString(lab, 4, 14);
+    M5.Display.drawString(lab, 4, 4);
   }
   if (s_midiDetectedSuggest[0] != '\0' && millis() < s_midiDetectedSuggestUntilMs) {
     char sug[20];
@@ -1382,7 +1575,7 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
     M5.Display.setTextDatum(top_left);
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-    M5.Display.drawString(sug, 4, 24);
+    M5.Display.drawString(sug, 4, 14);
   }
   if (g_settings.playInMonitor && s_playIngressInfo[0] != '\0' && millis() < s_playIngressInfoUntilMs) {
     const uint32_t nowMs = millis();
@@ -1402,31 +1595,33 @@ void drawPlaySurface(int fingerChord, bool fingerOnKey) {
     M5.Display.setTextDatum(top_left);
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(monitorColor, g_uiPalette.bg);
-    M5.Display.drawString(s_playIngressInfo, 4, 34);
+    M5.Display.drawString(s_playIngressInfo, 4, 24);
   }
 
-  // Discrete external-clock BPM readout in top-right (spec Phase 2 UX).
+  // External BPM + battery / link icons (top-right).
   const bool extClockSelected = (g_settings.midiClockSource != 0) && (g_settings.clkFollow != 0);
   const bool extClockActive = transportExternalClockActive();
+  char bpmCorner[8];
+  const char* extBpmPtr = nullptr;
+  uint16_t extBpmCol = g_uiPalette.subtle;
   if (extClockSelected) {
-    char bpmCorner[8];
     const uint16_t extBpm = transportExternalClockBpm();
     if (extClockActive && extBpm >= 40 && extBpm <= 300) {
       snprintf(bpmCorner, sizeof(bpmCorner), "%u", static_cast<unsigned>(extBpm));
     } else {
       snprintf(bpmCorner, sizeof(bpmCorner), "--");
     }
+    extBpmPtr = bpmCorner;
     const uint32_t nowMs = millis();
     const bool flashOn = nowMs < s_playClockFlashUntilMs;
-    M5.Display.setFont(nullptr);
-    M5.Display.setTextDatum(top_right);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(flashOn ? g_uiPalette.rowNormal : g_uiPalette.subtle, g_uiPalette.bg);
-    M5.Display.drawString(bpmCorner, w - 6, 4);
+    extBpmCol = flashOn ? g_uiPalette.rowNormal : g_uiPalette.subtle;
   }
+  drawTopSystemStatus(w, 2, extBpmPtr, extBpmCol);
 
   drawBezelBarStrip();
   M5.Display.endWrite();
+  s_playFingerVisualChord = fingerChord;
+  s_playFingerVisualOnKey = fingerOnKey;
 }
 
 int hitTestPlay(int px, int py) {
@@ -1589,13 +1784,11 @@ void drawPlayCategorySurface(int fingerCell) {
   M5.Display.setFont(nullptr);
   M5.Display.setTextDatum(top_left);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("Chord categories", 4, 2);
   M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
-  M5.Display.drawString(playCategoryTitle(s_playCategoryPage), 4, 14);
+  M5.Display.drawString(playCategoryTitle(s_playCategoryPage), 4, 4);
 
   constexpr int pad = 6;
-  const int gridTop = 32;
+  const int gridTop = 22;
   const int cols = 4;
   const int rows = 2;
   const int cellW = (w - ((cols + 1) * pad)) / cols;
@@ -1621,6 +1814,7 @@ void drawPlayCategorySurface(int fingerCell) {
     }
     drawRoundedButton(g_playCategoryCells[i], bg, lab, 1);
   }
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -1666,6 +1860,140 @@ static int seqChordDropItemCount() {
   return 11;  // 8 surrounds + tie + rest + optional surprise pool token
 }
 
+/// Multi-ring glow for the audible sequencer step while transport is playing (theme-tuned colors).
+static void drawSequencerActiveStepGlow(const Rect& r) {
+  const int rad = max(4, r.h / 8);
+  M5.Display.drawRoundRect(r.x - 7, r.y - 7, r.w + 14, r.h + 14, rad + 7, g_uiPalette.seqPlayGlowOuter);
+  M5.Display.drawRoundRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, rad + 4, g_uiPalette.highlightRing);
+  M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, rad + 2, g_uiPalette.seqPlayGlowInner);
+}
+
+static void drawSequencerPaintCell(int i, int fingerCell) {
+  const Rect& r = g_seqCellRects[i];
+  static const char* kToolLabs[4] = {"Qnt", "Swg", "Prb", "Rnd"};
+  static const SeqTool kToolMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
+                                      SeqTool::ChordRand};
+
+  if (seqSelectToolsActive() && i < 4) {
+    if (s_shiftActive) {
+      const uint8_t L = seqLaneClamped();
+      char lab[16];
+      if (s_shiftSeqFocusStep < 0 || s_shiftSeqFocusStep > 15) {
+        snprintf(lab, sizeof(lab), "%s",
+                 i == 0 ? "Div --" : (i == 1 ? "Arp --" : (i == 2 ? "Pat --" : "ADiv --")));
+      } else if (i == 0) {
+        snprintf(lab, sizeof(lab), "Div %s",
+                 kStepDivLabs[g_seqExtras.stepClockDiv[L][s_shiftSeqFocusStep] & 0x03U]);
+      } else if (i == 1) {
+        snprintf(lab, sizeof(lab), "Arp %s", g_seqExtras.arpEnabled[L][s_shiftSeqFocusStep] ? "On" : "Off");
+      } else if (i == 2) {
+        snprintf(lab, sizeof(lab), "Pat %s",
+                 kArpPatLabs[g_seqExtras.arpPattern[L][s_shiftSeqFocusStep] & 0x03U]);
+      } else {
+        snprintf(lab, sizeof(lab), "ADiv %s",
+                 kStepDivLabs[g_seqExtras.arpClockDiv[L][s_shiftSeqFocusStep] & 0x03U]);
+      }
+      drawRoundedButton(r, g_uiPalette.accentPress, lab, 1);
+      if (s_shiftSeqFocusField == static_cast<uint8_t>(i)) {
+        M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
+                                 g_uiPalette.highlightRing);
+      }
+    } else {
+      const bool on = (g_seqTool == kToolMap[i]);
+      uint16_t bg = on ? g_uiPalette.seqLaneTab : g_uiPalette.accentPress;
+      drawRoundedButton(r, bg, kToolLabs[i], 1);
+      if (on) {
+        M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
+                                 g_uiPalette.highlightRing);
+      }
+    }
+    return;
+  }
+
+  const uint8_t v = g_seqPattern[g_seqLane][i];
+  uint16_t bg = g_uiPalette.panelMuted;
+  if (v == kSeqRest) {
+    bg = g_uiPalette.seqRest;
+  } else if (v == kSeqTie) {
+    bg = g_uiPalette.seqTie;
+  } else if (v == kSeqSurprise) {
+    bg = g_uiPalette.surprise;
+  } else if (v <= 7) {
+    bg = colorForRole(g_model.surround[v].role);
+  } else {
+    bg = g_uiPalette.panelMuted;
+  }
+  if (i == fingerCell) {
+    bg = g_uiPalette.accentPress;
+  }
+  drawRoundedButton(r, bg, seqStepLabel(v), 1);
+  const uint8_t lane = seqLaneClamped();
+  const uint8_t stepDiv = g_seqExtras.stepClockDiv[lane][i] & 0x03U;
+  const bool arpOn = g_seqExtras.arpEnabled[lane][i] != 0U;
+  const uint8_t arpPat = g_seqExtras.arpPattern[lane][i] & 0x03U;
+  const uint8_t arpDiv = g_seqExtras.arpClockDiv[lane][i] & 0x03U;
+  if (r.h >= 24 && (stepDiv > 0U || arpOn)) {
+    M5.Display.setFont(nullptr);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(g_uiPalette.hintText, bg);
+    if (stepDiv > 0U) {
+      char db[8];
+      snprintf(db, sizeof(db), "D%s", kStepDivLabs[stepDiv]);
+      M5.Display.setTextDatum(top_left);
+      M5.Display.drawString(db, r.x + 2, r.y + 2);
+    }
+    if (arpOn) {
+      char ab[12];
+      if (arpPat == 0U && arpDiv == 0U) {
+        snprintf(ab, sizeof(ab), "A");
+      } else {
+        snprintf(ab, sizeof(ab), "A%s%s", kArpPatLabs[arpPat], kStepDivLabs[arpDiv]);
+      }
+      M5.Display.setTextDatum(top_right);
+      M5.Display.drawString(ab, r.x + r.w - 2, r.y + 2);
+    }
+  }
+  const uint8_t probV = g_seqExtras.stepProb[lane][i];
+  if (probV < 100 && r.h >= 24) {
+    M5.Display.setFont(nullptr);
+    M5.Display.setTextDatum(bottom_right);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(g_uiPalette.hintText, bg);
+    char pr[8];
+    snprintf(pr, sizeof(pr), "%u", (unsigned)probV);
+    M5.Display.drawString(pr, r.x + r.w - 2, r.y + r.h - 2);
+  }
+  if (transportIsPlaying() && transportAudibleStep() == static_cast<uint8_t>(i)) {
+    drawSequencerActiveStepGlow(r);
+  }
+  if (g_seqTool == SeqTool::StepProb && g_seqProbFocusStep == i) {
+    M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
+                             g_uiPalette.highlightRing);
+  }
+  if (s_shiftActive && s_shiftSeqFocusStep == i) {
+    M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
+                             g_uiPalette.settingsBtnActive);
+  }
+}
+
+/// Repaint only cells affected by playhead motion (avoids full-screen flash on each tick).
+static void sequencerRedrawPlayheadDelta(uint8_t oldAudible, uint8_t newAudible) {
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  computeSequencerLayout(w, h);
+  M5.Display.startWrite();
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextDatum(top_left);
+  M5.Display.setTextSize(1);
+  if (oldAudible < 16) {
+    drawSequencerPaintCell(static_cast<int>(oldAudible), -1);
+  }
+  if (newAudible < 16) {
+    drawSequencerPaintCell(static_cast<int>(newAudible), -1);
+  }
+  M5.Display.endWrite();
+}
+
 void drawSequencerSurface(int fingerCell) {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
@@ -1676,10 +2004,6 @@ void drawSequencerSurface(int fingerCell) {
   M5.Display.setFont(nullptr);
   M5.Display.setTextDatum(top_left);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString(s_shiftActive ? "Shift: tap step focus, top row edits params"
-                                      : "tap=chord  hold=clear  hold SELECT=Shift tools",
-                        4, 2);
 
   for (int t = 0; t < 3; ++t) {
     char lab[20];
@@ -1694,114 +2018,8 @@ void drawSequencerSurface(int fingerCell) {
     }
   }
 
-  static const char* kToolLabs[4] = {"Qnt", "Swg", "Prb", "Rnd"};
-  static const SeqTool kToolMap[4] = {SeqTool::Quantize, SeqTool::Swing, SeqTool::StepProb,
-                                      SeqTool::ChordRand};
-
   for (int i = 0; i < 16; ++i) {
-    const Rect& r = g_seqCellRects[i];
-
-    if (seqSelectToolsActive() && i < 4) {
-      if (s_shiftActive) {
-        const uint8_t L = seqLaneClamped();
-        char lab[16];
-        if (s_shiftSeqFocusStep < 0 || s_shiftSeqFocusStep > 15) {
-          snprintf(lab, sizeof(lab), "%s",
-                   i == 0 ? "Div --" : (i == 1 ? "Arp --" : (i == 2 ? "Pat --" : "ADiv --")));
-        } else if (i == 0) {
-          snprintf(lab, sizeof(lab), "Div %s",
-                   kStepDivLabs[g_seqExtras.stepClockDiv[L][s_shiftSeqFocusStep] & 0x03U]);
-        } else if (i == 1) {
-          snprintf(lab, sizeof(lab), "Arp %s", g_seqExtras.arpEnabled[L][s_shiftSeqFocusStep] ? "On" : "Off");
-        } else if (i == 2) {
-          snprintf(lab, sizeof(lab), "Pat %s",
-                   kArpPatLabs[g_seqExtras.arpPattern[L][s_shiftSeqFocusStep] & 0x03U]);
-        } else {
-          snprintf(lab, sizeof(lab), "ADiv %s",
-                   kStepDivLabs[g_seqExtras.arpClockDiv[L][s_shiftSeqFocusStep] & 0x03U]);
-        }
-        drawRoundedButton(r, g_uiPalette.accentPress, lab, 1);
-        if (s_shiftSeqFocusField == static_cast<uint8_t>(i)) {
-          M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
-                                   g_uiPalette.highlightRing);
-        }
-      } else {
-        const bool on = (g_seqTool == kToolMap[i]);
-        uint16_t bg = on ? g_uiPalette.seqLaneTab : g_uiPalette.accentPress;
-        drawRoundedButton(r, bg, kToolLabs[i], 1);
-        if (on) {
-          M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
-                                   g_uiPalette.highlightRing);
-        }
-      }
-      continue;
-    }
-
-    const uint8_t v = g_seqPattern[g_seqLane][i];
-    uint16_t bg = g_uiPalette.panelMuted;
-    if (v == kSeqRest) {
-      bg = g_uiPalette.seqRest;
-    } else if (v == kSeqTie) {
-      bg = g_uiPalette.seqTie;
-    } else if (v == kSeqSurprise) {
-      bg = g_uiPalette.surprise;
-    } else if (v <= 7) {
-      bg = colorForRole(g_model.surround[v].role);
-    } else {
-      bg = g_uiPalette.panelMuted;
-    }
-    if (i == fingerCell) {
-      bg = g_uiPalette.accentPress;
-    }
-    drawRoundedButton(r, bg, seqStepLabel(v), 1);
-    const uint8_t lane = seqLaneClamped();
-    const uint8_t stepDiv = g_seqExtras.stepClockDiv[lane][i] & 0x03U;
-    const bool arpOn = g_seqExtras.arpEnabled[lane][i] != 0U;
-    const uint8_t arpPat = g_seqExtras.arpPattern[lane][i] & 0x03U;
-    const uint8_t arpDiv = g_seqExtras.arpClockDiv[lane][i] & 0x03U;
-    if (r.h >= 24 && (stepDiv > 0U || arpOn)) {
-      M5.Display.setFont(nullptr);
-      M5.Display.setTextSize(1);
-      M5.Display.setTextColor(g_uiPalette.hintText, bg);
-      if (stepDiv > 0U) {
-        char db[8];
-        snprintf(db, sizeof(db), "D%s", kStepDivLabs[stepDiv]);
-        M5.Display.setTextDatum(top_left);
-        M5.Display.drawString(db, r.x + 2, r.y + 2);
-      }
-      if (arpOn) {
-        char ab[12];
-        if (arpPat == 0U && arpDiv == 0U) {
-          snprintf(ab, sizeof(ab), "A");
-        } else {
-          snprintf(ab, sizeof(ab), "A%s%s", kArpPatLabs[arpPat], kStepDivLabs[arpDiv]);
-        }
-        M5.Display.setTextDatum(top_right);
-        M5.Display.drawString(ab, r.x + r.w - 2, r.y + 2);
-      }
-    }
-    const uint8_t probV = g_seqExtras.stepProb[lane][i];
-    if (probV < 100 && r.h >= 24) {
-      M5.Display.setFont(nullptr);
-      M5.Display.setTextDatum(bottom_right);
-      M5.Display.setTextSize(1);
-      M5.Display.setTextColor(g_uiPalette.hintText, bg);
-      char pr[8];
-      snprintf(pr, sizeof(pr), "%u", (unsigned)probV);
-      M5.Display.drawString(pr, r.x + r.w - 2, r.y + r.h - 2);
-    }
-    if (g_seqTool == SeqTool::StepProb && g_seqProbFocusStep == i) {
-      M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
-                             g_uiPalette.highlightRing);
-    }
-    if (s_shiftActive && s_shiftSeqFocusStep == i) {
-      M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
-                               g_uiPalette.settingsBtnActive);
-    }
-    if (transportIsPlaying() && transportAudibleStep() == i) {
-      M5.Display.drawRoundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, max(4, r.h / 8),
-                             g_uiPalette.feedback);
-    }
+    drawSequencerPaintCell(i, fingerCell);
   }
 
   if (g_seqSliderActive) {
@@ -1887,6 +2105,7 @@ void drawSequencerSurface(int fingerCell) {
     }
   }
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -1894,11 +2113,12 @@ void drawSequencerSurface(int fingerCell) {
 void computeXyLayout(int w, int h) {
   layoutBottomBezels(w, h);
   constexpr int margin = 8;
-  constexpr int topBlock = 78;
+  constexpr int titleH = 10;
   constexpr int coordH = 12;
-  const int cfgY = 58;
   const int cfgGap = 4;
-  const int cfgH = 14;
+  constexpr int cfgH = 22;
+  const int cfgY = titleH + 4;
+  const int topBlock = cfgY + cfgH + 6;
   const int cfgW = (w - (2 * margin) - (4 * cfgGap)) / 5;
   g_xyCfgChRect = {margin + (cfgW + cfgGap) * 0, cfgY, cfgW, cfgH};
   g_xyCfgCcARect = {margin + (cfgW + cfgGap) * 1, cfgY, cfgW, cfgH};
@@ -2035,21 +2255,8 @@ void drawXyPadSurface() {
   M5.Display.setFont(nullptr);
   M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
   M5.Display.setTextDatum(top_center);
-  M5.Display.setTextSize(2);
-  M5.Display.drawString("X-Y MIDI", w / 2, 2);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  char sub[48];
-  snprintf(sub, sizeof(sub), "drag pad  CH%u  CC%u / CC%u", (unsigned)g_xyOutChannel, (unsigned)g_xyCcA,
-           (unsigned)g_xyCcB);
-  M5.Display.drawString(sub, w / 2, 22);
-  M5.Display.drawString("BACK/FWD = Transport / Pad / Seq / XY", w / 2, 34);
-  M5.Display.drawString("CC 0-31 auto uses 14-bit (MSB/LSB)", w / 2, 42);
-  M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
-  char mode[80];
-  snprintf(mode, sizeof(mode), "%s | Release: %s (SELECT)",
-           g_xyRecordToSeq ? "Mode: REC->SEQ (SELECT+pad)" : "Mode: LIVE CC", xyReleaseModeLabel());
-  M5.Display.drawString(mode, w / 2, 50);
+  M5.Display.drawString("X-Y MIDI", w / 2, 2);
 
   char bl[24];
   snprintf(bl, sizeof(bl), "CH%u", (unsigned)g_xyOutChannel);
@@ -2078,6 +2285,7 @@ void drawXyPadSurface() {
   M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
   M5.Display.drawString(vals, w / 2, pr.y + pr.h + 2);
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -2224,8 +2432,6 @@ void drawMidiDebugSurface() {
   M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
   M5.Display.drawString("MIDI Debug", w / 2, 2);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("SEL: back settings   BACK/FWD: ring pages", w / 2, 20);
 
   char stat[64];
   char bpmTxt[8];
@@ -2446,6 +2652,7 @@ void drawMidiDebugSurface() {
     y += 12;
     shown++;
   }
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -2916,6 +3123,11 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
 
   if (touchCount == 1) {
     const auto& d = M5.Touch.getDetail(0);
+    if (s_seqChordDropStep >= 0 && d.isPressed() && !wasTouchActive &&
+        hitTestSeqChordDrop(d.x, d.y) >= 0) {
+      s_seqChordDropTouchStartX = d.x;
+      s_seqChordDropTouchStartY = d.y;
+    }
     if (s_shiftActive && d.isPressed()) {
       if (pointInRect(d.x, d.y, g_bezelBack)) {
         wasTouchActive = true;
@@ -3060,12 +3272,18 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
     if (s_seqChordDropStep >= 0) {
       const int pick = hitTestSeqChordDrop(hx, hy);
       if (pick >= 0) {
-        uint8_t v;
-        if (pick < 8) v = static_cast<uint8_t>(pick);
-        else if (pick == 8) v = kSeqTie;
-        else if (pick == 9) v = kSeqRest;
-        else v = kSeqSurprise;
-        g_seqPattern[g_seqLane][s_seqChordDropStep] = v;
+        const bool haveAnchor =
+            hitTestSeqChordDrop(s_seqChordDropTouchStartX, s_seqChordDropTouchStartY) >= 0;
+        const bool movedPast = haveAnchor && touchMovedPastSuppressThreshold(
+                                                s_seqChordDropTouchStartX, s_seqChordDropTouchStartY, hx, hy);
+        if (!movedPast) {
+          uint8_t v;
+          if (pick < 8) v = static_cast<uint8_t>(pick);
+          else if (pick == 8) v = kSeqTie;
+          else if (pick == 9) v = kSeqRest;
+          else v = kSeqSurprise;
+          g_seqPattern[g_seqLane][s_seqChordDropStep] = v;
+        }
       }
       s_seqChordDropStep = -1;
       drawSequencerSurface();
@@ -3140,6 +3358,8 @@ void processSequencerTouch(uint8_t touchCount, int w, int h) {
         return;
       }
       s_seqChordDropStep = cell;
+      s_seqChordDropTouchStartX = -9999;
+      s_seqChordDropTouchStartY = -9999;
       drawSequencerSurface();
       return;
     }
@@ -3280,9 +3500,12 @@ void processPlayTouch(uint8_t touchCount, int w, int h) {
       s_playTouchDrawVoicing = false;
       const bool onBezel = pointInRect(d.x, d.y, g_bezelBack) || pointInRect(d.x, d.y, g_bezelSelect) ||
                            pointInRect(d.x, d.y, g_bezelFwd);
-      // Avoid full-screen redraw while holding chord/key/bezel — redraw on release only.
+      // Dead zone between pads: full redraw (last-played outlines + status). Pads/key/bezel edge:
+      // repaint only affected cells.
       if (!onBezel && ht != -2 && ht < 0) {
         drawPlaySurface();
+      } else {
+        playRedrawFingerHighlightOnly(dc, dok);
       }
     }
     if (d.isPressed() && !s_playChordTriggeredThisTouch && !s_playSelectLatched && !s_shiftActive) {
@@ -3681,55 +3904,68 @@ void drawKeyPicker() {
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
   M5.Display.setTextDatum(bottom_center);
   M5.Display.drawString("Pick tonic, mode, then Done", w / 2, btnY - 4);
+  drawTopSystemStatus(w, 2, nullptr, 0);
   M5.Display.endWrite();
 }
 
 void processKeyPickerTouch(uint8_t touchCount, int w, int h) {
   (void)w;
   (void)h;
-  if (touchCount == 0) {
-    if (wasTouchActive) {
-      wasTouchActive = false;
-      auto last = M5.Touch.getDetail();
-      const int px = last.x;
-      const int py = last.y;
-
-      if (pointInRect(px, py, g_keyPickDone)) {
-        panicForTrigger(PanicTrigger::KeyPickerTransition);
-        g_model.setTonicAndMode(g_pickTonic, g_pickMode);
-        chordStateSave(g_model);
-        seqPatternSave(g_seqPattern);
-        g_lastAction = "Key saved";
-        g_screen = Screen::Play;
-        drawPlaySurface();
-        return;
+  if (touchCount > 0) {
+    for (uint8_t i = 0; i < touchCount; ++i) {
+      const auto& d = M5.Touch.getDetail(i);
+      if (d.isPressed()) {
+        g_lastTouchX = d.x;
+        g_lastTouchY = d.y;
       }
-      if (pointInRect(px, py, g_keyPickCancel)) {
-        panicForTrigger(PanicTrigger::KeyPickerTransition);
-        g_screen = Screen::Play;
-        drawPlaySurface();
-        return;
-      }
-      for (int i = 0; i < ChordModel::kKeyCount; ++i) {
-        if (pointInRect(px, py, g_keyPickCells[i])) {
-          g_pickTonic = i;
-          drawKeyPicker();
-          return;
-        }
-      }
-      for (int m = 0; m < static_cast<int>(KeyMode::kCount); ++m) {
-        if (pointInRect(px, py, g_modePickCells[m])) {
-          g_pickMode = static_cast<KeyMode>(m);
-          drawKeyPicker();
-          return;
-        }
-      }
-      drawKeyPicker();
     }
+    if (!wasTouchActive) {
+      s_keyPickTouchStartX = g_lastTouchX;
+      s_keyPickTouchStartY = g_lastTouchY;
+    }
+    wasTouchActive = true;
     return;
   }
 
-  if (!wasTouchActive) wasTouchActive = true;
+  if (!wasTouchActive) return;
+  wasTouchActive = false;
+  const int px = g_lastTouchX;
+  const int py = g_lastTouchY;
+  const bool movedPast = touchMovedPastSuppressThreshold(s_keyPickTouchStartX, s_keyPickTouchStartY, px, py);
+
+  if (pointInRect(px, py, g_keyPickDone)) {
+    panicForTrigger(PanicTrigger::KeyPickerTransition);
+    g_model.setTonicAndMode(g_pickTonic, g_pickMode);
+    chordStateSave(g_model);
+    seqPatternSave(g_seqPattern);
+    g_lastAction = "Key saved";
+    g_screen = Screen::Play;
+    drawPlaySurface();
+    return;
+  }
+  if (pointInRect(px, py, g_keyPickCancel)) {
+    panicForTrigger(PanicTrigger::KeyPickerTransition);
+    g_screen = Screen::Play;
+    drawPlaySurface();
+    return;
+  }
+  if (!movedPast) {
+    for (int i = 0; i < ChordModel::kKeyCount; ++i) {
+      if (pointInRect(px, py, g_keyPickCells[i])) {
+        g_pickTonic = i;
+        drawKeyPicker();
+        return;
+      }
+    }
+    for (int m = 0; m < static_cast<int>(KeyMode::kCount); ++m) {
+      if (pointInRect(px, py, g_modePickCells[m])) {
+        g_pickMode = static_cast<KeyMode>(m);
+        drawKeyPicker();
+        return;
+      }
+    }
+  }
+  drawKeyPicker();
 }
 
 // =====================================================================
@@ -3861,6 +4097,7 @@ void drawProjectNameEdit() {
   M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
   M5.Display.drawString("BACK/FWD=cursor SEL=char", w / 2, g_peSave.y - 10);
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -3949,6 +4186,7 @@ void drawSdProjectPick() {
   }
   g_sdPickCancel = {6, h - 44, w - 12, 36};
   drawRoundedButton(g_sdPickCancel, g_uiPalette.keyPickDone, "Cancel", 2);
+  drawTopSystemStatus(w, 2, nullptr, 0);
   M5.Display.endWrite();
 }
 
@@ -3962,6 +4200,10 @@ void processSdProjectPickTouch(uint8_t touchCount, int w, int h) {
         g_lastTouchY = d.y;
       }
     }
+    if (!wasTouchActive) {
+      s_sdPickTouchStartX = g_lastTouchX;
+      s_sdPickTouchStartY = g_lastTouchY;
+    }
     wasTouchActive = true;
     return;
   }
@@ -3969,19 +4211,22 @@ void processSdProjectPickTouch(uint8_t touchCount, int w, int h) {
   wasTouchActive = false;
   const int hx = g_lastTouchX;
   const int hy = g_lastTouchY;
+  const bool movedPast = touchMovedPastSuppressThreshold(s_sdPickTouchStartX, s_sdPickTouchStartY, hx, hy);
   if (pointInRect(hx, hy, g_sdPickCancel)) {
     panicForTrigger(PanicTrigger::RestoreTransition);
     g_screen = Screen::Settings;
     drawSettingsUi();
     return;
   }
-  for (int i = 0; i < g_sdPickCount && i < 8; ++i) {
-    if (pointInRect(hx, hy, g_sdPickRows[i])) {
-      panicForTrigger(PanicTrigger::RestoreTransition);
-      applySdRestoreFromFolder(g_sdPickNames[i]);
-      g_screen = Screen::Settings;
-      drawSettingsUi();
-      return;
+  if (!movedPast) {
+    for (int i = 0; i < g_sdPickCount && i < 8; ++i) {
+      if (pointInRect(hx, hy, g_sdPickRows[i])) {
+        panicForTrigger(PanicTrigger::RestoreTransition);
+        applySdRestoreFromFolder(g_sdPickNames[i]);
+        g_screen = Screen::Settings;
+        drawSettingsUi();
+        return;
+      }
     }
   }
   drawSdProjectPick();
@@ -4077,7 +4322,7 @@ static void transportComputeDropLayout(int w, int h, int* outX, int* outY, int* 
   *visCount = min(*totalOpts, transportDropVisibleRows(h));
   *outW = w - 16;
   *outX = 8;
-  *outY = 50;
+  *outY = 38;
   *firstOpt = s_transportDropScroll;
   if (*firstOpt + *visCount > *totalOpts) {
     *firstOpt = max(0, *totalOpts - *visCount);
@@ -4126,7 +4371,7 @@ static void transportDropOpen(int8_t kind, int w, int h) {
 
 static void layoutTransportRects(int w, int h) {
   constexpr int margin = 8;
-  constexpr int row1y = 34;
+  constexpr int row1y = 22;
   constexpr int btnH = 38;
   constexpr int gap = 8;
   const int totalW = w - 2 * margin;
@@ -4155,6 +4400,48 @@ static void layoutTransportRects(int w, int h) {
   const int halfCol = (totalW - gap) / 2;
   g_trBpmTap = {margin, infoY, halfCol, infoH};
   g_trStepDisplay = {margin + halfCol + gap, infoY, halfCol, infoH};
+}
+
+/// Repaint only the step readout (avoids full Transport redraw every clock tick).
+static void transportRedrawStepDisplayOnly() {
+  const int w = M5.Display.width();
+  const int h = M5.Display.height();
+  layoutTransportRects(w, h);
+  M5.Display.startWrite();
+  const Rect& sd = g_trStepDisplay;
+  M5.Display.fillRect(sd.x, sd.y, sd.w, sd.h, g_uiPalette.bg);
+  M5.Display.drawRoundRect(sd.x, sd.y, sd.w, sd.h, 6, g_uiPalette.settingsBtnBorder);
+  M5.Display.setFont(nullptr);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextDatum(top_center);
+  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+  M5.Display.drawString("Step 1-16", sd.x + sd.w / 2, sd.y + 2);
+  char stepMain[8];
+  char stepSub[16];
+  if (transportIsCountIn()) {
+    const uint8_t cn = transportCountInNumber();
+    snprintf(stepMain, sizeof(stepMain), "%u", static_cast<unsigned>(cn));
+    snprintf(stepSub, sizeof(stepSub), "cnt in");
+  } else if (transportIsPlaying() || transportIsPaused()) {
+    const uint8_t au = transportAudibleStep();
+    const unsigned disp = static_cast<unsigned>(au) + 1U;
+    const unsigned beatInBar = static_cast<unsigned>(au) / 4U + 1U;
+    const unsigned subInBeat = static_cast<unsigned>(au) % 4U + 1U;
+    snprintf(stepMain, sizeof(stepMain), "%u", disp);
+    snprintf(stepSub, sizeof(stepSub), "b%u s%u", beatInBar, subInBeat);
+  } else {
+    snprintf(stepMain, sizeof(stepMain), "--");
+    snprintf(stepSub, sizeof(stepSub), " ");
+  }
+  M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
+  M5.Display.setTextSize(4);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.drawString(stepMain, sd.x + sd.w / 2, sd.y + sd.h / 2 - 2);
+  M5.Display.setTextSize(2);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
+  M5.Display.drawString(stepSub, sd.x + sd.w / 2, sd.y + sd.h / 2 + 22);
+  M5.Display.endWrite();
 }
 
 void drawTransportSurface() {
@@ -4192,15 +4479,7 @@ void drawTransportSurface() {
       const uint16_t bg = sel ? g_uiPalette.settingsBtnActive : g_uiPalette.panelMuted;
       drawRoundedButton(r, bg, lab, 2);
     }
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-    const int hintY = min(h - kBezelBarH - 52, dy + vis * rh + 2);
-    if (tot > vis) {
-      M5.Display.drawString("BACK / FWD / drag = scroll list", w / 2, hintY);
-      M5.Display.drawString("Tap row to select   SEL: cancel", w / 2, hintY + 12);
-    } else {
-      M5.Display.drawString("Tap row to select   SEL: cancel", w / 2, hintY);
-    }
+    drawTopSystemStatus(w, 2, nullptr, 0);
     drawBezelBarStrip();
     M5.Display.endWrite();
     return;
@@ -4210,8 +4489,6 @@ void drawTransportSurface() {
   M5.Display.setTextSize(2);
   M5.Display.drawString("Transport", w / 2, 2);
   M5.Display.setTextSize(1);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("BACK/FWD: Transport / Pad / Seq / XY", w / 2, 20);
 
   const char* playLab = "Play";
   if (transportIsPaused()) {
@@ -4303,6 +4580,7 @@ void drawTransportSurface() {
   M5.Display.drawString(stepSub, g_trStepDisplay.x + g_trStepDisplay.w / 2,
                          g_trStepDisplay.y + g_trStepDisplay.h / 2 + 22);
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -4344,6 +4622,7 @@ void drawTransportBpmEdit() {
   drawRoundedButton(g_bpmEditOk, g_uiPalette.settingsBtnActive, "OK", 2);
   drawRoundedButton(g_bpmEditCancel, g_uiPalette.keyPickCancel, "Cancel", 2);
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -4373,6 +4652,7 @@ void drawTransportTapTempo() {
   g_trTapTempoDone = {8, h - kBezelBarH - 44, w - 16, 36};
   drawRoundedButton(g_trTapTempoDone, g_uiPalette.settingsBtnActive, "Use BPM", 2);
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -4595,7 +4875,8 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
     }
     const int pick = transportHitDropdown(relX, relY, w, h);
     if (pick >= 0) {
-      if (fingerScrollsThisGesture > 0) {
+      const bool movedPastThreshold = touchMovedPastSuppressThreshold(hx, hy, relX, relY);
+      if (fingerScrollsThisGesture > 0 || movedPastThreshold) {
         drawTransportSurface();
         return;
       }
@@ -4718,6 +4999,8 @@ static int settingsPanelRowCount(SettingsPanel p) {
       return 10;
     case SettingsPanel::Storage:
       return 4;
+    case SettingsPanel::UserGuide:
+      return 0;
     default:
       return 0;
   }
@@ -4753,6 +5036,7 @@ static uint8_t settingsPanelRowId(SettingsPanel p, int idx) {
 static void settingsSyncRowFromCursor() {
   if (g_settingsPanel == SettingsPanel::Menu) return;
   int n = settingsPanelRowCount(g_settingsPanel);
+  if (n <= 0) return;
   int i = g_settingsCursorRow;
   if (i < 0) i = 0;
   if (i >= n) i = n - 1;
@@ -5529,6 +5813,8 @@ static void settingsOpenDropdownOrAction(uint8_t rid, int w, int h) {
   if (settingsDropdownOptionCount(static_cast<int8_t>(rid)) <= 0) return;
   s_settingsDropRowId = static_cast<int8_t>(rid);
   s_settingsDropOptScroll = settingsDropdownScrollForCurrent(s_settingsDropRowId, h);
+  s_settingsDropDragLastY = -1;
+  s_settingsDropFingerScrollCount = 0;
 }
 
 static void settingsComputeDropdownLayout(int w, int h, int8_t rid, int* outX, int* outY, int* outW,
@@ -5558,15 +5844,21 @@ static int settingsHitDropdown(int px, int py, int w, int h) {
 }
 
 static int settingsHitMenuCell(int px, int py, int w, int h) {
-  constexpr int kTop = 42;
-  const int gap = 8;
+  constexpr int kTop = 38;
+  constexpr int gap = 8;
+  constexpr int kGuideBtnH = 28;
   int y0 = kTop;
   int availH = h - kBezelBarH - y0 - gap;
   int availW = w - 2 * gap;
-  if (availH < 40 || availW < 40) return -1;
+  if (availH < 50 || availW < 40) return -1;
+  int gridH = availH - kGuideBtnH - gap;
+  int ch = (gridH - gap) / 2;
   int cw = (availW - gap) / 2;
-  int ch = (availH - gap) / 2;
-  if (px < gap || py < y0) return -1;
+  int guideY = y0 + gridH + gap;
+  if (py >= guideY && py < guideY + kGuideBtnH && px >= gap && px < w - gap) {
+    return 4;
+  }
+  if (px < gap || py < y0 || py >= guideY) return -1;
   int lx = (px - gap) / (cw + gap);
   int ly = (py - y0) / (ch + gap);
   if (lx < 0 || lx > 1 || ly < 0 || ly > 1) return -1;
@@ -5924,6 +6216,52 @@ static void settingsRowValueString(uint8_t rid, char* buf, size_t n) {
   }
 }
 
+static const char* const kUserGuideLines[] = {
+    "=== Ring / settings ===",
+    "BACK/FWD: Transport / Pad / Seq / XY.",
+    "Settings: hold BACK + FWD ~0.8s.",
+    "",
+    "=== Play ===",
+    "SELECT on key: voicing / edit. Hold SELECT: Shift.",
+    "Surround = chords. Center = key / mode.",
+    "",
+    "=== Chord categories ===",
+    "Tap a cell to choose a chord from the list.",
+    "",
+    "=== Sequencer ===",
+    "Tap step: set chord. Hold: clear.",
+    "Hold SELECT: Shift tools / step focus.",
+    "Top row (Shift): step div, arp, pattern.",
+    "",
+    "=== X-Y MIDI ===",
+    "Drag pad for CC. CH / CC / Curve: top row.",
+    "CC 0-31: 14-bit pairs (MSB+LSB) when sent.",
+    "SELECT + pad: REC to seq (if mode on) else LIVE.",
+    "Release: Return center or Hold last (SELECT).",
+    "",
+    "=== Transport ===",
+    "BPM tap/hold; step readout; MIDI/clock rows.",
+    "Dropdowns: tap row. FWD/BACK scroll list.",
+    "BACK or SEL closes the list.",
+    "",
+    "=== MIDI debug ===",
+    "SEL: exit to Settings. BACK/FWD: other pages.",
+    "",
+};
+static constexpr size_t kUserGuideLineCount = sizeof(kUserGuideLines) / sizeof(kUserGuideLines[0]);
+
+static int userGuideVisibleLines(int h) {
+  constexpr int kLineStep = 10;
+  constexpr int kTopG = 42;
+  int fb = (g_settingsFeedback[0] != '\0') ? 20 : 4;
+  int contentBottom = h - kBezelBarH - fb - 16;
+  return max(1, (contentBottom - kTopG) / kLineStep);
+}
+
+static int userGuideMaxScroll(int h) {
+  return max(0, static_cast<int>(kUserGuideLineCount) - userGuideVisibleLines(h));
+}
+
 void drawSettingsUi() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
@@ -5941,13 +6279,15 @@ void drawSettingsUi() {
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
     M5.Display.drawString("Choose a category", w / 2, 26);
-    constexpr int kTop = 42;
-    const int gap = 8;
+    constexpr int kTop = 38;
+    constexpr int gap = 8;
+    constexpr int kGuideBtnH = 28;
     int y0 = kTop;
     int availH = h - kBezelBarH - y0 - gap;
     int availW = w - 2 * gap;
+    int gridH = availH - kGuideBtnH - gap;
+    int ch = (gridH - gap) / 2;
     int cw = (availW - gap) / 2;
-    int ch = (availH - gap) / 2;
     const char* labs[4] = {"MIDI", "Display", "Seq/Arp", "SD/Backup"};
     for (int i = 0; i < 4; ++i) {
       int lx = i % 2;
@@ -5956,6 +6296,45 @@ void drawSettingsUi() {
       const uint8_t tsize = (ly == 1) ? static_cast<uint8_t>(1) : static_cast<uint8_t>(2);
       drawRoundedButton(r, g_uiPalette.panelMuted, labs[i], tsize);
     }
+    const int guideY = y0 + gridH + gap;
+    Rect guideR = {gap, guideY, w - 2 * gap, kGuideBtnH};
+    drawRoundedButton(guideR, g_uiPalette.panelMuted, "User guide", 2);
+  } else if (g_settingsPanel == SettingsPanel::UserGuide) {
+    const int mx = userGuideMaxScroll(h);
+    if (g_userGuideScroll > mx) {
+      g_userGuideScroll = mx;
+    }
+    if (g_userGuideScroll < 0) {
+      g_userGuideScroll = 0;
+    }
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
+    M5.Display.drawString("User guide", w / 2, 26);
+    constexpr int kLineStep = 10;
+    constexpr int kTopG = 42;
+    int fb = (g_settingsFeedback[0] != '\0') ? 20 : 4;
+    int contentBottom = h - kBezelBarH - fb - 16;
+    M5.Display.setTextDatum(top_left);
+    M5.Display.setTextSize(1);
+    int y = kTopG;
+    for (size_t li = static_cast<size_t>(g_userGuideScroll); li < kUserGuideLineCount && y + kLineStep <= contentBottom;
+         ++li) {
+      const char* line = kUserGuideLines[li];
+      if (line[0] == '\0') {
+        y += kLineStep / 2;
+        continue;
+      }
+      uint16_t col = g_uiPalette.rowNormal;
+      if (line[0] == '=' && line[1] == '=') {
+        col = g_uiPalette.accentPress;
+      }
+      M5.Display.setTextColor(col, g_uiPalette.bg);
+      M5.Display.drawString(line, 6, y);
+      y += kLineStep;
+    }
+    M5.Display.setTextDatum(top_center);
+    M5.Display.setTextColor(g_uiPalette.subtle, g_uiPalette.bg);
+    M5.Display.drawString("FWD: more   BACK: up / menu", w / 2, h - kBezelBarH - 14);
   } else {
     const char* sec = "";
     switch (g_settingsPanel) {
@@ -6073,6 +6452,7 @@ void drawSettingsUi() {
     M5.Display.drawString("BACK cancel  SELECT/FWD confirm", w / 2, boxY + 34);
   }
 
+  drawTopSystemStatus(w, 2, nullptr, 0);
   drawBezelBarStrip();
   M5.Display.endWrite();
 }
@@ -6088,12 +6468,52 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
         g_lastTouchY = d.y;
       }
     }
+    if (!wasTouchActive) {
+      s_settingsTouchStartX = g_lastTouchX;
+      s_settingsTouchStartY = g_lastTouchY;
+    }
+    if (s_settingsDropRowId >= 0) {
+      int ddx, ddy, dww, drh, dfirst, dvis, dtot;
+      settingsComputeDropdownLayout(w, h, s_settingsDropRowId, &ddx, &ddy, &dww, &drh, &dfirst, &dvis,
+                                    &dtot);
+      const Rect listHit = {ddx, ddy, dww, dvis * drh};
+      const auto& d0 = M5.Touch.getDetail(0);
+      if (d0.isPressed() && pointInRect(d0.x, d0.y, listHit)) {
+        if (s_settingsDropDragLastY >= 0) {
+          const int delta = d0.y - s_settingsDropDragLastY;
+          constexpr int kSettingsDropScrollSlopPx = 18;
+          if (delta > kSettingsDropScrollSlopPx) {
+            if (s_settingsDropOptScroll > 0) {
+              --s_settingsDropOptScroll;
+              ++s_settingsDropFingerScrollCount;
+              drawSettingsUi();
+            }
+            s_settingsDropDragLastY = d0.y;
+          } else if (delta < -kSettingsDropScrollSlopPx) {
+            const int cnt = settingsDropdownOptionCount(s_settingsDropRowId);
+            if (s_settingsDropOptScroll + dvis < cnt) {
+              ++s_settingsDropOptScroll;
+              ++s_settingsDropFingerScrollCount;
+              drawSettingsUi();
+            }
+            s_settingsDropDragLastY = d0.y;
+          }
+        } else {
+          s_settingsDropDragLastY = d0.y;
+        }
+      } else {
+        s_settingsDropDragLastY = -1;
+      }
+    }
     wasTouchActive = true;
     return;
   }
 
   if (!wasTouchActive) return;
   wasTouchActive = false;
+  const int fingerScrollsSettingsDrop = s_settingsDropFingerScrollCount;
+  s_settingsDropFingerScrollCount = 0;
+  s_settingsDropDragLastY = -1;
 
   const int hx = g_lastTouchX;
   const int hy = g_lastTouchY;
@@ -6133,6 +6553,18 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
       drawSettingsUi();
       return;
     }
+    if (g_settingsPanel == SettingsPanel::UserGuide) {
+      if (g_userGuideScroll > 0) {
+        --g_userGuideScroll;
+        drawSettingsUi();
+        return;
+      }
+      g_factoryResetConfirmArmed = false;
+      g_settingsPanel = SettingsPanel::Menu;
+      g_userGuideScroll = 0;
+      drawSettingsUi();
+      return;
+    }
     if (g_settingsPanel != SettingsPanel::Menu) {
       g_factoryResetConfirmArmed = false;
       g_settingsPanel = SettingsPanel::Menu;
@@ -6153,6 +6585,14 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
       }
       return;
     }
+    if (g_settingsPanel == SettingsPanel::UserGuide) {
+      const int mx = userGuideMaxScroll(h);
+      if (g_userGuideScroll < mx) {
+        ++g_userGuideScroll;
+        drawSettingsUi();
+      }
+      return;
+    }
     if (g_settingsPanel != SettingsPanel::Menu) {
       settingsMoveCursorInSection(1, h);
       drawSettingsUi();
@@ -6162,6 +6602,10 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
 
   if (pointInRect(hx, hy, g_bezelSelect)) {
     if (s_settingsDropRowId >= 0) {
+      drawSettingsUi();
+      return;
+    }
+    if (g_settingsPanel == SettingsPanel::UserGuide) {
       drawSettingsUi();
       return;
     }
@@ -6178,6 +6622,12 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
   if (s_settingsDropRowId >= 0) {
     int pick = settingsHitDropdown(hx, hy, w, h);
     if (pick >= 0) {
+      const bool movedPastThreshold =
+          touchMovedPastSuppressThreshold(s_settingsTouchStartX, s_settingsTouchStartY, hx, hy);
+      if (fingerScrollsSettingsDrop > 0 || movedPastThreshold) {
+        drawSettingsUi();
+        return;
+      }
       settingsApplyDropdownPick(s_settingsDropRowId, pick);
       s_settingsDropRowId = -1;
     } else {
@@ -6197,6 +6647,9 @@ void processSettingsTouch(uint8_t touchCount, int w, int h) {
       g_settingsPanel = SettingsPanel::SeqArp;
     } else if (cell == 3) {
       g_settingsPanel = SettingsPanel::Storage;
+    } else if (cell == 4) {
+      g_settingsPanel = SettingsPanel::UserGuide;
+      g_userGuideScroll = 0;
     } else {
       drawSettingsUi();
       return;
@@ -6536,7 +6989,7 @@ static void processIncomingMidiEvent(const MidiEvent& ev, uint32_t nowMs) {
 
 static void midiRouteWriteBytes(uint8_t route, const uint8_t* bytes, size_t len) {
   if (!bytes || len == 0) return;
-  // route: 1=USB, 2=BLE, 3=DIN.
+  // route: 1=USB, 2=BLE, 3=DIN (matches Transport dropdown; 0 = off).
   switch (route) {
     case 1:
       (void)usbMidiWrite(bytes, len);
@@ -6545,8 +6998,9 @@ static void midiRouteWriteBytes(uint8_t route, const uint8_t* bytes, size_t len)
       (void)bleMidiWrite(bytes, len);
       break;
     case 3:
+      (void)dinMidiWrite(bytes, len);
+      break;
     default:
-      // DIN TX not implemented in this hardware build.
       break;
   }
 }
@@ -6699,6 +7153,7 @@ void loop() {
   if (transportIsPlaying()) {
     const uint8_t au = transportAudibleStep();
     if (au != s_prevAudible) {
+      const uint8_t prevAud = s_prevAudible;
       s_prevAudible = au;
       transportEmitSequencerStepMidi(au);
       seqArpProcessDue(now);
@@ -6708,10 +7163,18 @@ void loop() {
         s_playClockFlashUntilMs = now + 90;
       }
       if (g_screen == Screen::Sequencer) {
-        drawSequencerSurface();
+        if (g_seqSliderActive || (s_seqChordDropStep >= 0 && s_seqChordDropStep < 16)) {
+          drawSequencerSurface();
+        } else {
+          sequencerRedrawPlayheadDelta(prevAud, au);
+        }
       }
       if (g_screen == Screen::Transport) {
-        drawTransportSurface();
+        if (s_transportDropKind >= 0) {
+          drawTransportSurface();
+        } else {
+          transportRedrawStepDisplayOnly();
+        }
       }
       if (g_screen == Screen::Play && g_settings.midiClockSource != 0 && g_settings.clkFollow != 0) {
         drawPlaySurface();

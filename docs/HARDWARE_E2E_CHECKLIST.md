@@ -26,7 +26,7 @@ Single place to record **manual** verification on a physical **M5Stack CoreS3**.
 
 ## Sequencer
 
-- [ ] 16-step grid; step **cycle** (rest / tie / chords).
+- [ ] 16-step grid; step **picker** (rest / tie / chords / surprise); playback MIDI as designed.
 - [ ] Lane tabs; tool row (Q/S/P/Rnd) if enabled; pattern persists after reboot.
 
 ## Transport

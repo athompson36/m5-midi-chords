@@ -168,6 +168,18 @@ Parallel tracks after Phase 1: **Phase 5** can overlap **Phase 2–4** with care
 
 ---
 
+## Phase 11 — UI/UX polish (scroll vs tap, redraws, settings, seq tools)
+
+**Full checklist:** `docs/UI_UX_POLISH_BACKLOG.md`
+
+- [x] **Scroll vs pick:** movement threshold / `fingerScrollCount` on lift across Transport dropdowns, Settings dropdowns, key picker, SD restore list, sequencer chord dropdown; no accidental pick after scroll or slop drag (`main.cpp`).
+- [ ] **Redraws:** minimize full `fillRect`/`drawPlaySurface` on touch-move; use partial band/cell/crosshair paths; Transport/Seq/XY split static vs dynamic layers.
+- [ ] **Transport clock:** document single-route clock OUT vs note broadcast; optional clock fan-out; verify `clkFollow` / external-clock suppression; DIN realtime OUT wired (`midiRouteWriteBytes` route 3).
+- [ ] **Settings:** inventory all persisted fields vs UI; add **admin/advanced** section (build unlock, debug, schema).
+- [ ] **Sequencer/arp:** consolidate SELECT-toggle tools; dropdowns + sliders for all `SeqExtras` / Shift params; finger-friendly density.
+
+---
+
 ## Quick reference — spec files
 
 | Document | Scope |
@@ -176,9 +188,10 @@ Parallel tracks after Phase 1: **Phase 5** can overlap **Phase 2–4** with care
 | `docs/MIDI_INPUT_SPEC.md` | Transports, channels, clock, BPM UI |
 | `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md` | Seq, Shift, XY, arp, open questions |
 | `docs/ORIGINAL_UX_SPEC.md` | Baseline play/settings UX |
+| `docs/UI_UX_POLISH_BACKLOG.md` | Scroll/redraw/clock/settings/seq UX backlog |
 
 ---
 
 **GitHub issues:** one issue per checkbox cluster — run `python3 scripts/gen_github_issues.py` to refresh `scripts/github-issues.json` and `docs/GITHUB_ISSUES.md`, then `python3 scripts/create_github_issues.py` (requires [`gh`](https://cli.github.com/) auth).
 
-*Last updated: USB MIDI class-device path enabled in `UsbMidiTransport` (TinyUSB MIDI interface), BLE TX framing tightened for multi-message interoperability, transport realtime send path wired (Clock/Start/Continue/Stop on selected route), panic now clears tracked notes on all channels, sequencer SELECT tool toggle latching fixed, and MIDI ingress/provider tests extended with USB provider-hook coverage; hardware interoperability verification remains ongoing in `docs/HARDWARE_E2E_CHECKLIST.md`.*
+*Last updated: Phase 11 (UI/UX polish backlog) added; DIN MIDI realtime OUT fixed in `midiRouteWriteBytes` route 3 (`main.cpp`); see `docs/UI_UX_POLISH_BACKLOG.md`.*

@@ -30,9 +30,9 @@ Short tap **BACK** or **FWD** cycles pages in a fixed ring:
 - **Eight chord pads** in a 3×3 ring (**I** … **♭VII**), color-coded by harmonic role.
 - Chord and tonic taps emit **MIDI notes** on the configured channel/velocity over USB + BLE transport paths (see `docs/MIDI_STACK.md`).
 
-### Sequencer (basic UI)
+### Sequencer
 
-**16-step** grid (**4 bars × 4 beats**), three **lanes**, tool row (quantize, swing, step probability, chord random). **Tap a step** to **cycle**: rest (`-`) → tie (`~`) → surround chord indices → … (a full **dropdown** picker is planned — `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md`). Patterns and extras persist in **NVS** (and optional SD backup). **Audible step MIDI** and **Shift** layer are not implemented yet.
+**16-step** grid (**4 bars × 4 beats**), three **lanes**, tool row (quantize, swing, step probability, chord random). **Tap a step** to open a **picker** (surround chords, tie, rest, surprise token). Playback sends **MIDI** per step (lanes, swing, probability, etc.); **Shift** (hold **SELECT**) exposes per-step division/arp controls. Patterns and `SeqExtras` persist in **NVS** (and optional SD backup). See `docs/SEQUENCER_AND_SHIFT_UX_SPEC.md` and `docs/TODO_IMPLEMENTATION.md`.
 
 ### Heart / Surprise chord
 

@@ -35,6 +35,10 @@ struct UiPalette {
   uint16_t danger;
   uint16_t subtle;
   uint16_t panelMuted;
+  /// Soft outer halo for sequencer playhead (transport playing).
+  uint16_t seqPlayGlowOuter;
+  /// Bright inner ring for sequencer playhead glow.
+  uint16_t seqPlayGlowInner;
 };
 
 extern UiPalette g_uiPalette;

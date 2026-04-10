@@ -67,6 +67,18 @@ void usbMidiPoll() {}
 
 bool usbMidiReady() { return g_usbReady; }
 
+bool usbMidiHostConnected() {
+#if defined(ARDUINO)
+#if CONFIG_TINYUSB_ENABLED && CONFIG_TINYUSB_MIDI_ENABLED
+  return g_usbReady && tud_mounted();
+#else
+  return false;
+#endif
+#else
+  return false;
+#endif
+}
+
 size_t usbMidiWrite(const uint8_t* bytes, size_t len) {
 #if defined(ARDUINO)
   if (!bytes || len == 0 || !g_usbReady) return 0;

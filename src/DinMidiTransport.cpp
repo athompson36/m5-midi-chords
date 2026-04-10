@@ -12,6 +12,7 @@ namespace {
 constexpr uint32_t kDinMidiBaud = 31250U;
 volatile bool g_dinReady = false;
 volatile uint32_t g_dinRxBytes = 0;
+volatile uint32_t g_dinLastTrafficMs = 0;
 
 #if defined(ARDUINO)
 #ifndef M5CHORD_DIN_RX_PIN
@@ -37,10 +38,27 @@ void dinMidiPoll() {}
 
 bool dinMidiReady() { return g_dinReady; }
 
+bool dinMidiRecentTraffic(uint32_t maxAgeMs) {
+#if defined(ARDUINO)
+  if (!g_dinReady || g_dinLastTrafficMs == 0) return false;
+  const uint32_t now = millis();
+  const uint32_t last = g_dinLastTrafficMs;
+  const uint32_t age = (now >= last) ? (now - last) : (UINT32_MAX - last + now + 1U);
+  return age <= maxAgeMs;
+#else
+  (void)maxAgeMs;
+  return false;
+#endif
+}
+
 size_t dinMidiWrite(const uint8_t* bytes, size_t len) {
 #if defined(ARDUINO)
   if (!bytes || len == 0 || !g_dinReady) return 0;
-  return Serial1.write(bytes, len);
+  const size_t w = Serial1.write(bytes, len);
+  if (w > 0) {
+    g_dinLastTrafficMs = millis();
+  }
+  return w;
 #else
   (void)bytes;
   (void)len;
@@ -61,7 +79,10 @@ extern "C" size_t __attribute__((weak)) m5ChordDinMidiRead(uint8_t* dst, size_t 
     if (rb < 0) break;
     dst[n++] = static_cast<uint8_t>(rb);
   }
-  g_dinRxBytes += static_cast<uint32_t>(n);
+  if (n > 0) {
+    g_dinRxBytes += static_cast<uint32_t>(n);
+    g_dinLastTrafficMs = millis();
+  }
   return n;
 #else
   (void)dst;
