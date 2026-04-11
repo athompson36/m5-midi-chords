@@ -271,4 +271,24 @@ void drawStatusBadge(DisplayAdapter& d, const StatusBadgeSpec& spec) {
 #endif
 }
 
+void drawTabChip(DisplayAdapter& d, const TabChipSpec& spec) {
+#if defined(PIO_NATIVE)
+  (void)d;
+  (void)spec;
+#else
+  if (!d.gfx) return;
+  M5GFX& D = gfxOf(d);
+  const Rect& r = spec.bounds;
+  const uint16_t fill = spec.selected ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted;
+  const uint16_t border = spec.selected ? g_uiPalette.highlightRing : g_uiPalette.subtle;
+  D.fillRoundRect(r.x, r.y, r.w, r.h, spec.radius, fill);
+  D.drawRoundRect(r.x, r.y, r.w, r.h, spec.radius, border);
+  D.setFont(nullptr);
+  D.setTextSize(spec.textSize);
+  D.setTextDatum(middle_center);
+  D.setTextColor(TFT_WHITE, fill);
+  D.drawString(spec.label ? spec.label : "", r.x + r.w / 2, r.y + r.h / 2);
+#endif
+}
+
 }  // namespace ui

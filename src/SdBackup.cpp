@@ -136,6 +136,10 @@ bool parseGlobalBuf(char* buf, AppSettings& s) {
       s.brightnessPercent = static_cast<uint8_t>(v);
       continue;
     }
+    if (sscanf(line, "adim:%u", &v) == 1) {
+      if (v < 4) s.displayAutoDimPreset = static_cast<uint8_t>(v);
+      continue;
+    }
     if (sscanf(line, "vel:%u", &v) == 1) {
       s.outputVelocity = static_cast<uint8_t>(v);
       continue;
@@ -562,6 +566,8 @@ bool sdBackupWriteGlobal(const AppSettings& s) {
   snprintf(line, sizeof(line), "inDin:%u\n", (unsigned)s.midiInChannelDin);
   ok = ok && writeAll(f, line);
   snprintf(line, sizeof(line), "bright:%u\n", (unsigned)s.brightnessPercent);
+  ok = ok && writeAll(f, line);
+  snprintf(line, sizeof(line), "adim:%u\n", (unsigned)s.displayAutoDimPreset);
   ok = ok && writeAll(f, line);
   snprintf(line, sizeof(line), "vel:%u\n", (unsigned)s.outputVelocity);
   ok = ok && writeAll(f, line);

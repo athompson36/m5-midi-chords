@@ -1,67 +1,151 @@
+#include "XyDrawerLayout.h"
+
 static const char* xyCurveLabel(uint8_t curve);
 static const char* xyReleaseModeLabel();
 
-static Rect s_xyDrReturn{};
-static Rect s_xyDrRec{};
+static xy_screen::XyDrawerLayoutRects s_xyDr{};
 
 static void layoutXyDrawerControlRects(int screenW, int screenH) {
-  const ::ui::Rect drawer = ::ui::makeTopDrawerRect(screenW, screenH, 120);
-  const ::ui::Rect content = ::ui::makeDrawerContentRect(drawer);
-  const int gap = ::ui::LayoutMetrics::ControlGap;
-  ::ui::Rect row1 = ::ui::makeStripRect(content, 4, 26);
-  ::ui::Rect r3[3];
-  ::ui::layout3Up(row1, r3, gap);
-  g_xyCfgChRect = {r3[0].x, r3[0].y, r3[0].w, r3[0].h};
-  g_xyCfgCcARect = {r3[1].x, r3[1].y, r3[1].w, r3[1].h};
-  g_xyCfgCcBRect = {r3[2].x, r3[2].y, r3[2].w, r3[2].h};
-  ::ui::Rect row2 = ::ui::makeStripRect(content, 36, 26);
-  ::ui::Rect r2a[2];
-  ::ui::layout2Up(row2, r2a, gap);
-  g_xyCfgCvARect = {r2a[0].x, r2a[0].y, r2a[0].w, r2a[0].h};
-  g_xyCfgCvBRect = {r2a[1].x, r2a[1].y, r2a[1].w, r2a[1].h};
-  ::ui::Rect row3 = ::ui::makeStripRect(content, 68, 26);
-  ::ui::Rect r2b[2];
-  ::ui::layout2Up(row3, r2b, gap);
-  s_xyDrReturn = {r2b[0].x, r2b[0].y, r2b[0].w, r2b[0].h};
-  s_xyDrRec = {r2b[1].x, r2b[1].y, r2b[1].w, r2b[1].h};
+  s_xyDr = xy_screen::computeXyDrawerLayout(screenW, screenH, g_topDrawerUi.subpage & 1U);
+  g_xyCfgChRect = {s_xyDr.mapCh.x, s_xyDr.mapCh.y, s_xyDr.mapCh.w, s_xyDr.mapCh.h};
+  g_xyCfgCcARect = {s_xyDr.mapCcA.x, s_xyDr.mapCcA.y, s_xyDr.mapCcA.w, s_xyDr.mapCcA.h};
+  g_xyCfgCcBRect = {s_xyDr.mapCcB.x, s_xyDr.mapCcB.y, s_xyDr.mapCcB.w, s_xyDr.mapCcB.h};
+  g_xyCfgCvARect = {s_xyDr.mapCvA.x, s_xyDr.mapCvA.y, s_xyDr.mapCvA.w, s_xyDr.mapCvA.h};
+  g_xyCfgCvBRect = {s_xyDr.mapCvB.x, s_xyDr.mapCvB.y, s_xyDr.mapCvB.w, s_xyDr.mapCvB.h};
 }
 
 void drawXyTopDrawer(::ui::DisplayAdapter& d) {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
   layoutXyDrawerControlRects(w, h);
+  const int drawerH = xy_screen::xyDrawerHeightPx();
   ::ui::DrawerSheetSpec sheet{};
-  sheet.bounds = ::ui::makeTopDrawerRect(w, h, 120);
+  sheet.bounds = ::ui::makeTopDrawerRect(w, h, drawerH);
   sheet.title = "X-Y setup";
   sheet.showHandle = true;
   ::ui::drawDrawerSheet(d, sheet);
 
-  char bl[24];
-  snprintf(bl, sizeof(bl), "CH%u", (unsigned)g_xyOutChannel);
-  drawRoundedButton(g_xyCfgChRect, g_uiPalette.panelMuted, bl, 1);
-  snprintf(bl, sizeof(bl), "X CC%u", (unsigned)g_xyCcA);
-  drawRoundedButton(g_xyCfgCcARect, g_uiPalette.panelMuted, bl, 1);
-  snprintf(bl, sizeof(bl), "Y CC%u", (unsigned)g_xyCcB);
-  drawRoundedButton(g_xyCfgCcBRect, g_uiPalette.panelMuted, bl, 1);
-  snprintf(bl, sizeof(bl), "X %s", xyCurveLabel(g_xyCurveA));
-  drawRoundedButton(g_xyCfgCvARect, g_uiPalette.panelMuted, bl, 1);
-  snprintf(bl, sizeof(bl), "Y %s", xyCurveLabel(g_xyCurveB));
-  drawRoundedButton(g_xyCfgCvBRect, g_uiPalette.panelMuted, bl, 1);
+  const uint8_t sub = g_topDrawerUi.subpage & 1U;
 
-  char ret[20];
-  snprintf(ret, sizeof(ret), "%s", xyReleaseModeLabel());
-  drawRoundedButton(s_xyDrReturn, g_uiPalette.seqLaneTab, ret, 1);
-  snprintf(bl, sizeof(bl), "Rec %s", g_xyRecordToSeq ? "on" : "off");
-  drawRoundedButton(s_xyDrRec, g_xyRecordToSeq ? g_uiPalette.accentPress : g_uiPalette.panelMuted, bl, 1);
+  ::ui::TabChipSpec tabMap{};
+  tabMap.bounds = s_xyDr.tabMap;
+  tabMap.label = "Map";
+  tabMap.selected = (sub == 0);
+  tabMap.textSize = 1;
+  ::ui::drawTabChip(d, tabMap);
+  ::ui::TabChipSpec tabOpt{};
+  tabOpt.bounds = s_xyDr.tabOpt;
+  tabOpt.label = "Options";
+  tabOpt.selected = (sub == 1);
+  tabOpt.textSize = 1;
+  ::ui::drawTabChip(d, tabOpt);
+
+  char bl[24];
+  if (sub == 0) {
+    snprintf(bl, sizeof(bl), "CH%u", (unsigned)g_xyOutChannel);
+    drawRoundedButton(g_xyCfgChRect, g_uiPalette.panelMuted, bl, 1);
+    snprintf(bl, sizeof(bl), "X CC%u", (unsigned)g_xyCcA);
+    drawRoundedButton(g_xyCfgCcARect, g_uiPalette.panelMuted, bl, 1);
+    snprintf(bl, sizeof(bl), "Y CC%u", (unsigned)g_xyCcB);
+    drawRoundedButton(g_xyCfgCcBRect, g_uiPalette.panelMuted, bl, 1);
+    snprintf(bl, sizeof(bl), "X %s", xyCurveLabel(g_xyCurveA));
+    drawRoundedButton(g_xyCfgCvARect, g_uiPalette.panelMuted, bl, 1);
+    snprintf(bl, sizeof(bl), "Y %s", xyCurveLabel(g_xyCurveB));
+    drawRoundedButton(g_xyCfgCvBRect, g_uiPalette.panelMuted, bl, 1);
+  } else {
+    char ret[24];
+    snprintf(ret, sizeof(ret), "%s", xyReleaseModeLabel());
+    drawRoundedButton(
+        Rect{s_xyDr.optReturn.x, s_xyDr.optReturn.y, s_xyDr.optReturn.w, s_xyDr.optReturn.h},
+        g_uiPalette.seqLaneTab, ret, 1);
+    snprintf(bl, sizeof(bl), "Rec %s", g_xyRecordToSeq ? "on" : "off");
+    drawRoundedButton(
+        Rect{s_xyDr.optRec.x, s_xyDr.optRec.y, s_xyDr.optRec.w, s_xyDr.optRec.h},
+        g_xyRecordToSeq ? g_uiPalette.accentPress : g_uiPalette.panelMuted, bl, 1);
+  }
+}
+
+bool xyProcessTopDrawerTouch(uint8_t touchCount, int w, int h) {
+  if (!::ui::topDrawerIsOpen(g_topDrawerUi)) return false;
+  if (g_topDrawerUi.kind != ::ui::TopDrawerKind::Xy) return false;
+  layoutXyDrawerControlRects(w, h);
+  const int drawerH = xy_screen::xyDrawerHeightPx();
+  const ::ui::Rect sheet = ::ui::makeTopDrawerRect(w, h, drawerH);
+  const uint8_t sub = g_topDrawerUi.subpage & 1U;
+
+  if (touchCount == 1) {
+    const auto& td = M5.Touch.getDetail(0);
+    if (td.isPressed() && !pointInRect(td.x, td.y, Rect{sheet.x, sheet.y, sheet.w, sheet.h})) {
+      ::ui::topDrawerClose(g_topDrawerUi);
+      drawXyPadSurface(false);
+    }
+    wasTouchActive = true;
+    return true;
+  }
+  if (touchCount == 0) {
+    if (!wasTouchActive) return true;
+    wasTouchActive = false;
+    const int hx = g_lastTouchX;
+    const int hy = g_lastTouchY;
+
+    if (pointInRect(hx, hy, Rect{s_xyDr.tabMap.x, s_xyDr.tabMap.y, s_xyDr.tabMap.w, s_xyDr.tabMap.h})) {
+      g_topDrawerUi.subpage = 0;
+      drawXyPadSurface(false);
+      return true;
+    }
+    if (pointInRect(hx, hy, Rect{s_xyDr.tabOpt.x, s_xyDr.tabOpt.y, s_xyDr.tabOpt.w, s_xyDr.tabOpt.h})) {
+      g_topDrawerUi.subpage = 1;
+      drawXyPadSurface(false);
+      return true;
+    }
+
+    if (sub == 0) {
+      if (pointInRect(hx, hy, g_xyCfgChRect)) {
+        g_xyOutChannel = static_cast<uint8_t>((g_xyOutChannel % 16U) + 1U);
+        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
+      } else if (pointInRect(hx, hy, g_xyCfgCcARect)) {
+        g_xyCcA = static_cast<uint8_t>((g_xyCcA + 1U) & 0x7FU);
+        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
+      } else if (pointInRect(hx, hy, g_xyCfgCcBRect)) {
+        g_xyCcB = static_cast<uint8_t>((g_xyCcB + 1U) & 0x7FU);
+        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
+      } else if (pointInRect(hx, hy, g_xyCfgCvARect)) {
+        g_xyCurveA = static_cast<uint8_t>((g_xyCurveA + 1U) % 3U);
+        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
+      } else if (pointInRect(hx, hy, g_xyCfgCvBRect)) {
+        g_xyCurveB = static_cast<uint8_t>((g_xyCurveB + 1U) % 3U);
+        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
+      }
+    } else {
+      if (pointInRect(hx, hy, Rect{s_xyDr.optReturn.x, s_xyDr.optReturn.y, s_xyDr.optReturn.w,
+                                   s_xyDr.optReturn.h})) {
+        g_settings.xyReturnToCenter = g_settings.xyReturnToCenter ? 0U : 1U;
+        settingsSave(g_settings);
+      } else if (pointInRect(hx, hy,
+                             Rect{s_xyDr.optRec.x, s_xyDr.optRec.y, s_xyDr.optRec.w, s_xyDr.optRec.h})) {
+        g_xyRecordToSeq = !g_xyRecordToSeq;
+        transportPrefsSave();
+      }
+    }
+
+    if (!pointInRect(hx, hy, Rect{sheet.x, sheet.y, sheet.w, sheet.h})) {
+      ::ui::topDrawerClose(g_topDrawerUi);
+      drawXyPadSurface(false);
+      return true;
+    }
+    drawXyPadSurface(false);
+    return true;
+  }
+  wasTouchActive = true;
+  return true;
 }
 
 void computeXyLayout(int w, int h) {
   layoutBottomBezels(w, h);
-  constexpr int margin = 8;
-  constexpr int titleH = 10;
+  const int margin = static_cast<int>(::ui::LayoutMetrics::OuterMargin);
   constexpr int coordH = 12;
-  const int padTop = titleH + 8;
-  const int padBottom = h - kBezelBarH - coordH - 2;
+  const int padTop = static_cast<int>(::ui::LayoutMetrics::StatusH);
+  const int padBottom = h - kBezelBarH - coordH;
   const int padH = padBottom - padTop;
   const int padW = w - 2 * margin;
   g_xyPadRect = {margin, padTop, padW, max(40, padH)};
@@ -162,7 +246,7 @@ static void xyQueueAxisCc(uint8_t channel0_15, uint8_t cc, uint8_t value7, uint8
   pending->value = value7;
 }
 
-static void xyFlushPending(uint32_t nowMs) {
+void xyFlushPending(uint32_t nowMs) {
   if (s_xyPendingX.dirty && (nowMs - s_xyLastSendMsX) >= kXyCcMinIntervalMs) {
     xySendAxisCc(s_xyPendingX.channel, s_xyPendingX.cc, s_xyPendingX.value, &s_xyMidiSentX);
     s_xyLastSendMsX = nowMs;
@@ -185,14 +269,6 @@ void drawXyPadSurface(bool fullClear) {
   M5.Display.startWrite();
   if (fullClear) M5.Display.fillRect(0, 0, w, h - kBezelBarH, g_uiPalette.bg);
   computeXyLayout(w, h);
-
-  M5.Display.setFont(nullptr);
-  M5.Display.setTextColor(g_uiPalette.rowNormal, g_uiPalette.bg);
-  M5.Display.setTextDatum(top_center);
-  M5.Display.setTextSize(1);
-  M5.Display.drawString("X-Y MIDI", w / 2, 2);
-  M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-  M5.Display.drawString("Swipe down: setup", w / 2, 14);
 
   const Rect& pr = g_xyPadRect;
   M5.Display.fillRoundRect(pr.x, pr.y, pr.w, pr.h, 8, g_uiPalette.xyPadFill);
@@ -228,6 +304,8 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
     return;
   }
 
+  if (xyProcessTopDrawerTouch(touchCount, w, h)) return;
+
   if (touchCount > 0) {
     for (uint8_t i = 0; i < touchCount; ++i) {
       const auto& d = M5.Touch.getDetail(i);
@@ -236,58 +314,6 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
         g_lastTouchY = d.y;
       }
     }
-  }
-
-  if (::ui::topDrawerIsOpen(g_topDrawerUi) && g_topDrawerUi.kind == ::ui::TopDrawerKind::Xy) {
-    layoutXyDrawerControlRects(w, h);
-    const ::ui::Rect sheet = ::ui::makeTopDrawerRect(w, h, 120);
-    if (touchCount == 1) {
-      const auto& d = M5.Touch.getDetail(0);
-      if (d.isPressed() && !pointInRect(d.x, d.y, Rect{sheet.x, sheet.y, sheet.w, sheet.h})) {
-        ::ui::topDrawerClose(g_topDrawerUi);
-        drawXyPadSurface(false);
-      }
-      wasTouchActive = true;
-      return;
-    }
-    if (touchCount == 0) {
-      if (!wasTouchActive) return;
-      wasTouchActive = false;
-      const int hx = g_lastTouchX;
-      const int hy = g_lastTouchY;
-      const uint8_t midiCh = static_cast<uint8_t>((g_xyOutChannel < 1 || g_xyOutChannel > 16) ? 0U
-                                                                                               : (g_xyOutChannel - 1U));
-      if (pointInRect(hx, hy, g_xyCfgChRect)) {
-        g_xyOutChannel = static_cast<uint8_t>((g_xyOutChannel % 16U) + 1U);
-        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
-      } else if (pointInRect(hx, hy, g_xyCfgCcARect)) {
-        g_xyCcA = static_cast<uint8_t>((g_xyCcA + 1U) & 0x7FU);
-        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
-      } else if (pointInRect(hx, hy, g_xyCfgCcBRect)) {
-        g_xyCcB = static_cast<uint8_t>((g_xyCcB + 1U) & 0x7FU);
-        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
-      } else if (pointInRect(hx, hy, g_xyCfgCvARect)) {
-        g_xyCurveA = static_cast<uint8_t>((g_xyCurveA + 1U) % 3U);
-        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
-      } else if (pointInRect(hx, hy, g_xyCfgCvBRect)) {
-        g_xyCurveB = static_cast<uint8_t>((g_xyCurveB + 1U) % 3U);
-        xyMappingSave(g_xyOutChannel, g_xyCcA, g_xyCcB, g_xyCurveA, g_xyCurveB);
-      } else if (pointInRect(hx, hy, s_xyDrReturn)) {
-        g_settings.xyReturnToCenter = g_settings.xyReturnToCenter ? 0U : 1U;
-        settingsSave(g_settings);
-      } else if (pointInRect(hx, hy, s_xyDrRec)) {
-        g_xyRecordToSeq = !g_xyRecordToSeq;
-        transportPrefsSave();
-      } else if (!pointInRect(hx, hy, Rect{sheet.x, sheet.y, sheet.w, sheet.h})) {
-        ::ui::topDrawerClose(g_topDrawerUi);
-        drawXyPadSurface(false);
-        return;
-      }
-      drawXyPadSurface(false);
-      return;
-    }
-    wasTouchActive = true;
-    return;
   }
 
   if (tryEnterSettingsTwoFingerLong(touchCount, w, h)) {
@@ -400,6 +426,11 @@ void processXyTouch(uint8_t touchCount, int w, int h) {
     const int hx = g_lastTouchX;
     const int hy = g_lastTouchY;
     if (pointInRect(hx, hy, g_bezelBack)) {
+      if (::ui::topDrawerIsOpen(g_topDrawerUi)) {
+        ::ui::topDrawerClose(g_topDrawerUi);
+        drawXyPadSurface(false);
+        return;
+      }
       navigateMainRing(-1);
       return;
     }

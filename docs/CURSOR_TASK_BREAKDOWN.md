@@ -207,3 +207,21 @@ This project cleanup/UI upgrade pass is complete when:
 - page drawers are modular
 - old replaced UI code is being removed
 - behavior is preserved
+
+---
+
+## Implementation snapshot (repo state)
+
+Use this to see what is already landed vs still aspirational. Update when major slices merge.
+
+| Track | Status |
+|-------|--------|
+| **1 — Documentation** | `README.md` and `DOCS_INDEX.md` are current; `DEV_ROADMAP.md` marked historical; `E2E_STATUS.md` labeled as dated runs with reading guide |
+| **2 — UI foundation** | `src/ui/UiTypes.h`, `UiLayout.*`, `UiGloss.*` exist and are wired |
+| **3 — Drawer framework** | `src/ui/UiDrawers.*` + top-drawer behavior in firmware |
+| **4–6 — Per-screen drawers** | Play / Sequencer / X–Y surfaces use shared UI; bodies in `src/screens/*Screen.inc`, built from `src/screens/*Screen.cpp` with shared linkage via `m5chords_app/M5ChordsAppShared.h` |
+| **7 — Transport / Settings** | Same pattern (`TransportScreen`, `SettingsScreen`); shell orchestration and globals still in `main.cpp` |
+| **8 — Legacy keys** | Documented in `PERSISTENCE_KEYS.md` (schema v2, `inCh` / `mThr` / `mThM` policy, retirement note) |
+| **9 — Tests** | Native tests for domain + layout + settings; `AppSettings::displayAutoDimIdleTimeoutMs()` and similar helpers are preferred for new host-testable mappings |
+
+**Optional next:** further shrink `main.cpp` by moving non-screen helpers (e.g. play layout, MIDI debug surface) into dedicated `.cpp` units if you want smaller translation units (behavior-first).

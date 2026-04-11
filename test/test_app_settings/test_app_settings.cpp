@@ -26,6 +26,7 @@ void test_normalize_clamps_channels() {
   s.suggestProfile = 9;
   s.suggestProfileLock = 9;
   s.brightnessPercent = 3;
+  s.displayAutoDimPreset = 9;
   s.outputVelocity = 200;
   s.velocityCurve = 9;
   s.globalSwingPct = 255;
@@ -57,6 +58,7 @@ void test_normalize_clamps_channels() {
   TEST_ASSERT_EQUAL_UINT8(0, s.suggestProfile);
   TEST_ASSERT_EQUAL_UINT8(0, s.suggestProfileLock);
   TEST_ASSERT_EQUAL_UINT8(10, s.brightnessPercent);
+  TEST_ASSERT_EQUAL_UINT8(0, s.displayAutoDimPreset);
   TEST_ASSERT_EQUAL_UINT8(127, s.outputVelocity);
   TEST_ASSERT_EQUAL_UINT8(0, s.velocityCurve);
   TEST_ASSERT_EQUAL_UINT8(0, s.globalSwingPct);
@@ -88,10 +90,23 @@ void test_cycle_midi_in_usb_includes_omni() {
   TEST_ASSERT_EQUAL_UINT8(0, s.midiInChannel);
 }
 
+void test_display_auto_dim_idle_timeout_map() {
+  AppSettings s;
+  s.displayAutoDimPreset = 0;
+  TEST_ASSERT_EQUAL_UINT32(0, s.displayAutoDimIdleTimeoutMs());
+  s.displayAutoDimPreset = 1;
+  TEST_ASSERT_EQUAL_UINT32(30000, s.displayAutoDimIdleTimeoutMs());
+  s.displayAutoDimPreset = 2;
+  TEST_ASSERT_EQUAL_UINT32(60000, s.displayAutoDimIdleTimeoutMs());
+  s.displayAutoDimPreset = 3;
+  TEST_ASSERT_EQUAL_UINT32(300000, s.displayAutoDimIdleTimeoutMs());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_normalize_clamps_channels);
   RUN_TEST(test_cycle_midi_out_wraps);
   RUN_TEST(test_cycle_midi_in_usb_includes_omni);
+  RUN_TEST(test_display_auto_dim_idle_timeout_map);
   return UNITY_END();
 }

@@ -1,16 +1,17 @@
 // ----- Settings UI (sections, large type, dropdowns, bottom bezel bar) -----
 
-static const uint8_t kSetMidi[] = {0, 1, 18, 19, 17, 2, 3, 37, 4, 22, 23, 21, 20, 24, 25, 26, 27, 28, 29, 33, 35, 34, 36, 30, 31, 32};
-static const uint8_t kSetDisplay[] = {5, 8, 9, 7};
+static const uint8_t kSetMidi[] = {0,  1,  18, 19, 17, 2,  3,  37, 4,  22, 23, 46, 47, 48, 21, 20, 24, 25, 26,
+                                   27, 28, 29, 33, 35, 34, 36, 30, 31, 32, 44, 45};
+static const uint8_t kSetDisplay[] = {5, 49, 8, 9, 7};
 static const uint8_t kSetSeq[] = {6, 43, 38, 39, 40, 41, 42, 10, 11, 12};
 static const uint8_t kSetStorage[] = {13, 14, 15, 16};
 
 static int settingsPanelRowCount(SettingsPanel p) {
   switch (p) {
     case SettingsPanel::Midi:
-      return 26;
+      return 31;
     case SettingsPanel::Display:
-      return 4;
+      return 5;
     case SettingsPanel::SeqArp:
       return 10;
     case SettingsPanel::Storage:
@@ -28,11 +29,11 @@ static uint8_t settingsPanelRowId(SettingsPanel p, int idx) {
   switch (p) {
     case SettingsPanel::Midi:
       t = kSetMidi;
-      c = 26;
+      c = 31;
       break;
     case SettingsPanel::Display:
       t = kSetDisplay;
-      c = 4;
+      c = 5;
       break;
     case SettingsPanel::SeqArp:
       t = kSetSeq;
@@ -144,7 +145,16 @@ static int settingsDropdownOptionCount(int8_t rid) {
       return 5;
     case 33:
     case 35:
+    case 44:
+    case 45:
+    case 48:
       return 2;
+    case 46:
+      return 5;
+    case 47:
+      return 4;
+    case 49:
+      return 4;
     default:
       return 0;
   }
@@ -261,6 +271,19 @@ static int settingsDropdownScrollForCurrent(int8_t rid, int h) {
     case 23:
       idx = g_settings.clkFlashEdge ? 1 : 0;
       break;
+    case 46:
+      idx = static_cast<int>(g_settings.midiClockRateIndex);
+      if (idx < 0) idx = 0;
+      if (idx > 4) idx = 2;
+      break;
+    case 47:
+      idx = static_cast<int>(g_settings.mackieControlPort);
+      if (idx < 0) idx = 0;
+      if (idx > 3) idx = 0;
+      break;
+    case 48:
+      idx = g_settings.abletonLinkEnabled ? 1 : 0;
+      break;
     case 25:
       idx = g_settings.playInMonitor ? 1 : 0;
       break;
@@ -297,6 +320,17 @@ static int settingsDropdownScrollForCurrent(int8_t rid, int h) {
       break;
     case 35:
       idx = g_settings.suggestProfileLock ? 1 : 0;
+      break;
+    case 44:
+      idx = g_prefsMetronome ? 1 : 0;
+      break;
+    case 45:
+      idx = g_prefsCountIn ? 1 : 0;
+      break;
+    case 49:
+      idx = static_cast<int>(g_settings.displayAutoDimPreset);
+      if (idx < 0) idx = 0;
+      if (idx > 3) idx = 0;
       break;
     default:
       return 0;
@@ -449,6 +483,39 @@ static void settingsFormatDropdownOption(int8_t rid, int opt, char* buf, size_t 
     case 35:
       snprintf(buf, n, "%s", opt == 0 ? "Off" : "On");
       break;
+    case 44:
+    case 45:
+      snprintf(buf, n, "%s", opt == 0 ? "Off" : "On");
+      break;
+    case 46:
+      snprintf(buf, n, "%s", opt == 0   ? "x0.25"
+                             : opt == 1 ? "x0.5"
+                             : opt == 2 ? "x1"
+                             : opt == 3 ? "x2"
+                                        : "x4");
+      break;
+    case 47:
+      snprintf(buf, n, "%s", midiTransportRouteLabel(static_cast<uint8_t>(opt)));
+      break;
+    case 48:
+      snprintf(buf, n, "%s", opt == 0 ? "Off" : "On (stub)");
+      break;
+    case 49:
+      switch (opt) {
+        case 0:
+          snprintf(buf, n, "Off");
+          break;
+        case 1:
+          snprintf(buf, n, "30 sec");
+          break;
+        case 2:
+          snprintf(buf, n, "1 min");
+          break;
+        default:
+          snprintf(buf, n, "5 min");
+          break;
+      }
+      break;
     default:
       buf[0] = '\0';
       break;
@@ -517,51 +584,7 @@ static void settingsRunRestoreFlow() {
   drawSdProjectPick();
 }
 
-static void settingsRunClearMidiDebugData() {
-  s_midiEventHistory.clear();
-  s_midiInState.reset();
-  bleMidiResetRxBytes();
-  s_bleDbgRatePrevMs = 0;
-  s_bleDbgRatePrevRx = 0;
-  s_bleDbgRateBps = 0;
-  s_bleDbgRatePeakBps = 0;
-  s_bleDbgLastActivityMs = 0;
-  s_bleDbgPeakHeld = true;
-  dinMidiResetRxBytes();
-  s_dinDbgRatePrevMs = 0;
-  s_dinDbgRatePrevRx = 0;
-  s_dinDbgRateBps = 0;
-  s_dinDbgRatePeakBps = 0;
-  s_dinDbgLastActivityMs = 0;
-  s_dinDbgPeakHeld = true;
-  midiOutResetTxStats();
-  s_outDbgRatePrevMs = 0;
-  s_outDbgRatePrevTx = 0;
-  s_outDbgRateBps = 0;
-  s_outDbgRatePeakBps = 0;
-  midiIngressResetQueueDropTotals();
-  s_bleDbgPrevDrop = 0;
-  s_bleDbgWarnUntilMs = 0;
-  s_midiDetectedChord[0] = '\0';
-  s_midiDetectedChordUntilMs = 0;
-  s_midiDetectedSuggest[0] = '\0';
-  s_midiDetectedSuggestUntilMs = 0;
-  s_midiSuggestLastAtMs = 0;
-  for (int i = 0; i < 3; ++i) {
-    s_midiSuggestTop3[i][0] = '\0';
-    s_midiSuggestTop3Score[i] = 0;
-  }
-  s_midiSuggestTop3UntilMs = 0;
-  s_midiSuggestStableUntilMs = 0;
-  s_playIngressInfo[0] = '\0';
-  s_playIngressInfoUntilMs = 0;
-  s_playIngressLastMusicalMs = 0;
-  s_playIngressInfoEventMs = 0;
-  for (size_t i = 0; i < static_cast<size_t>(PanicTrigger::Count); ++i) {
-    s_panicTriggerCounts[i] = 0;
-  }
-  snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "MIDI debug data cleared");
-}
+static void settingsRunClearMidiDebugData() { clearMidiDebugDiagnosticsState(); }
 
 static void settingsSaveAndExit() {
   panicForTrigger(PanicTrigger::SettingsSaveExit);
@@ -740,6 +763,31 @@ static void settingsApplyDropdownPick(int8_t rid, int opt) {
       settingsSave(g_settings);
       snprintf(g_settingsFeedback, sizeof(g_settingsFeedback), "SUG lock %s",
                g_settings.suggestProfileLock ? "on" : "off");
+      break;
+    case 44:
+      g_prefsMetronome = (opt != 0);
+      transportPrefsSave();
+      break;
+    case 45:
+      g_prefsCountIn = (opt != 0);
+      transportPrefsSave();
+      break;
+    case 46:
+      g_settings.midiClockRateIndex = static_cast<uint8_t>((opt < 0 || opt > 4) ? 2 : opt);
+      settingsSave(g_settings);
+      break;
+    case 47:
+      g_settings.mackieControlPort = static_cast<uint8_t>((opt < 0 || opt > 3) ? 0 : opt);
+      settingsSave(g_settings);
+      break;
+    case 48:
+      g_settings.abletonLinkEnabled = static_cast<uint8_t>(opt == 0 ? 0 : 1);
+      settingsSave(g_settings);
+      break;
+    case 49:
+      g_settings.displayAutoDimPreset = static_cast<uint8_t>((opt < 0 || opt > 3) ? 0 : opt);
+      settingsSave(g_settings);
+      wakeDisplayBacklightFromIdleDim();
       break;
     default:
       break;
@@ -975,6 +1023,14 @@ static const char* settingsRowTitle(uint8_t rid) {
       return "Follow MIDI clock";
     case 23:
       return "Clock flash edge";
+    case 46:
+      return "Clock rate mult";
+    case 47:
+      return "Mackie transport";
+    case 48:
+      return "Ableton Link";
+    case 49:
+      return "Auto-dim idle";
     case 24:
       return "Clear MIDI debug";
     case 25:
@@ -1001,6 +1057,10 @@ static const char* settingsRowTitle(uint8_t rid) {
       return "SUG flip A/B";
     case 32:
       return "SUG defaults";
+    case 44:
+      return "Metronome";
+    case 45:
+      return "Count-in";
     default:
       return "";
   }
@@ -1149,6 +1209,36 @@ static void settingsRowValueString(uint8_t rid, char* buf, size_t n) {
     case 23:
       snprintf(buf, n, "%s", g_settings.clkFlashEdge ? "1/8" : "1/4");
       break;
+    case 46:
+      snprintf(buf, n, "%s",
+               g_settings.midiClockRateIndex == 0   ? "x0.25"
+               : g_settings.midiClockRateIndex == 1 ? "x0.5"
+               : g_settings.midiClockRateIndex == 3 ? "x2"
+               : g_settings.midiClockRateIndex == 4 ? "x4"
+                                                    : "x1");
+      break;
+    case 47:
+      snprintf(buf, n, "%s", midiTransportRouteLabel(g_settings.mackieControlPort));
+      break;
+    case 48:
+      snprintf(buf, n, "%s", g_settings.abletonLinkEnabled ? "On (stub)" : "Off");
+      break;
+    case 49:
+      switch (g_settings.displayAutoDimPreset) {
+        case 1:
+          snprintf(buf, n, "30 sec");
+          break;
+        case 2:
+          snprintf(buf, n, "1 min");
+          break;
+        case 3:
+          snprintf(buf, n, "5 min");
+          break;
+        default:
+          snprintf(buf, n, "Off");
+          break;
+      }
+      break;
     case 24:
       snprintf(buf, n, "Run");
       break;
@@ -1226,6 +1316,12 @@ static void settingsRowValueString(uint8_t rid, char* buf, size_t n) {
     case 16:
       buf[0] = '\0';
       break;
+    case 44:
+      snprintf(buf, n, "%s", g_prefsMetronome ? "On" : "Off");
+      break;
+    case 45:
+      snprintf(buf, n, "%s", g_prefsCountIn ? "On" : "Off");
+      break;
     default:
       buf[0] = '\0';
       break;
@@ -1257,6 +1353,7 @@ static const char* const kUserGuideLines[] = {
     "",
     "=== Transport ===",
     "BPM tap/hold; step readout; MIDI/clock rows.",
+    "Metronome & count-in: Settings → MIDI.",
     "Dropdowns: tap row. FWD/BACK scroll list.",
     "BACK or SEL closes the list.",
     "",

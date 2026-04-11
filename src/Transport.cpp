@@ -1,5 +1,7 @@
 #include "Transport.h"
 
+#include "AppSettings.h"
+#include "ClockRate.h"
 #include "SeqExtras.h"
 #include "SettingsStore.h"
 
@@ -7,6 +9,7 @@
 #include <stdlib.h>
 
 extern uint16_t g_projectBpm;
+extern AppSettings g_settings;
 extern uint8_t g_seqPattern[3][16];
 extern uint8_t g_seqLane;
 extern uint8_t g_xyValX;
@@ -41,6 +44,8 @@ bool s_extClockStreamArmBlocked = false;
 /// Last 0xF8 (or external Start/Continue) time — for inferring stop when host never sends 0xFC.
 uint32_t s_extLastClockActivityMs = 0;
 uint8_t s_externalClockTickPhase = 0;  // 6 MIDI clocks per sequencer step.
+/// Ignore extra 0xF8 with the same `millis()` as the previous (batching / duplicate bytes → 2× tempo).
+uint32_t s_extClockLastConsumedMs = 0xFFFFFFFFU;
 uint32_t s_externalPrevClockMs = 0;
 uint32_t s_externalAvgClockMs = 0;
 uint16_t s_externalClockBpm = 0;
@@ -52,7 +57,11 @@ uint32_t beatIntervalMs() {
   uint16_t bpm = g_projectBpm;
   if (bpm < 40) bpm = 40;
   if (bpm > 300) bpm = 300;
-  return 60000UL / static_cast<uint32_t>(bpm);
+  uint16_t num = 1;
+  uint16_t den = 1;
+  midiClockRateToRatio(g_settings.midiClockRateIndex, &num, &den);
+  const uint32_t base = 60000UL / static_cast<uint32_t>(bpm);
+  return base * den / num;
 }
 
 uint32_t seqStepBaseIntervalMs(uint8_t stepJustPlayed) {
@@ -204,6 +213,7 @@ void transportStop() {
   s_recordArmed = false;
   s_externalClockDrive = false;
   s_externalClockTickPhase = 0;
+  s_extClockLastConsumedMs = 0xFFFFFFFFU;
   s_externalPrevClockMs = 0;
   s_externalAvgClockMs = 0;
   s_externalClockBpm = 0;
@@ -304,6 +314,7 @@ void transportOnExternalStart(uint32_t nowMs) {
   s_extClockStreamArmBlocked = false;
   s_externalClockDrive = true;
   s_externalClockTickPhase = 0;
+  s_extClockLastConsumedMs = 0xFFFFFFFFU;
   s_externalPrevClockMs = 0;
   s_phase = Phase::Playing;
   s_playhead = 0;
@@ -318,6 +329,7 @@ void transportOnExternalStart(uint32_t nowMs) {
 void transportOnExternalContinue(uint32_t nowMs) {
   s_extClockStreamArmBlocked = false;
   s_externalClockDrive = true;
+  s_extClockLastConsumedMs = 0xFFFFFFFFU;
   s_phase = Phase::Playing;
   s_recording = s_recordArmed;
   s_nextEventMs = nowMs;
@@ -331,12 +343,16 @@ void transportOnExternalStop() {
   s_countInDisplay = 0;
   s_externalClockDrive = false;
   s_externalClockTickPhase = 0;
+  s_extClockLastConsumedMs = 0xFFFFFFFFU;
   s_extClockStreamArmBlocked = true;
   s_extLastClockActivityMs = 0;
 }
 
 void transportOnExternalClockTick(uint32_t nowMs) {
   if (!s_externalClockDrive || s_phase != Phase::Playing) return;
+
+  if (nowMs == s_extClockLastConsumedMs) return;
+  s_extClockLastConsumedMs = nowMs;
 
   s_extLastClockActivityMs = nowMs;
 

@@ -21,5 +21,6 @@ void drawStripShell(DisplayAdapter& d, const StripShellSpec& spec);
 void drawValuePill(DisplayAdapter& d, const ValuePillSpec& spec);
 void drawSliderTile(DisplayAdapter& d, const SliderTileSpec& spec);
 void drawStatusBadge(DisplayAdapter& d, const StatusBadgeSpec& spec);
+void drawTabChip(DisplayAdapter& d, const TabChipSpec& spec);
 
 }  // namespace ui

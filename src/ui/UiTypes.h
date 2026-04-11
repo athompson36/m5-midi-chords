@@ -114,6 +114,15 @@ struct StatusBadgeSpec {
   uint8_t textSize = 1;
 };
 
+/// Compact tab selector for drawer subpages (see UI_COMPONENT_SPEC TabChip).
+struct TabChipSpec {
+  Rect bounds;
+  const char* label = "";
+  bool selected = false;
+  uint8_t radius = 8;
+  uint8_t textSize = 1;
+};
+
 struct TopDrawerState {
   TopDrawerKind kind = TopDrawerKind::None;
   bool ignoreUntilTouchUp = false;

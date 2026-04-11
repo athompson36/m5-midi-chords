@@ -7,18 +7,20 @@ static Rect s_seqDrQuantP{};
 static Rect s_seqDrProbM{};
 static Rect s_seqDrProbP{};
 static Rect s_seqDrLane{};
+static Rect s_seqDrHumM{};
+static Rect s_seqDrHumP{};
 static Rect s_seqDrChM{};
 static Rect s_seqDrChP{};
 static Rect s_seqDrRandM{};
 static Rect s_seqDrRandP{};
 
-static constexpr int kSeqDrawerH = 130;
+static constexpr int kSeqDrawerH = 210;
 
 static void layoutSeqDrawerRects(int screenW, int screenH) {
   const ::ui::Rect drawer = ::ui::makeTopDrawerRect(screenW, screenH, kSeqDrawerH);
   const ::ui::Rect content = ::ui::makeDrawerContentRect(drawer);
   const int gap = ::ui::LayoutMetrics::ControlGap;
-  ::ui::Rect tabStrip = ::ui::makeStripRect(content, 4, 20);
+  ::ui::Rect tabStrip = ::ui::makeStripRect(content, 4, 28);
   ::ui::Rect tabPair[2];
   ::ui::layout2Up(tabStrip, tabPair, gap);
   s_seqDrTabFeel = {tabPair[0].x, tabPair[0].y, tabPair[0].w, tabPair[0].h};
@@ -26,9 +28,9 @@ static void layoutSeqDrawerRects(int screenW, int screenH) {
 
   const uint8_t sub = g_topDrawerUi.subpage & 1U;
   if (sub == 0) {
-    ::ui::Rect row1 = ::ui::makeStripRect(content, 28, 22);
-    ::ui::Rect row2 = ::ui::makeStripRect(content, 52, 22);
-    ::ui::Rect row3 = ::ui::makeStripRect(content, 76, 22);
+    ::ui::Rect row1 = ::ui::makeStripRect(content, 36, 40);
+    ::ui::Rect row2 = ::ui::makeStripRect(content, 80, 40);
+    ::ui::Rect row3 = ::ui::makeStripRect(content, 124, 40);
     ::ui::Rect a2[2];
     ::ui::layout2Up(row1, a2, gap);
     s_seqDrSwingM = {a2[0].x, a2[0].y, a2[0].w, a2[0].h};
@@ -39,11 +41,15 @@ static void layoutSeqDrawerRects(int screenW, int screenH) {
     ::ui::layout2Up(row3, a2, gap);
     s_seqDrProbM = {a2[0].x, a2[0].y, a2[0].w, a2[0].h};
     s_seqDrProbP = {a2[1].x, a2[1].y, a2[1].w, a2[1].h};
-    s_seqDrLane = ::ui::makeStripRect(content, 100, 20);
+    s_seqDrLane = ::ui::makeStripRect(content, 168, 28);
   } else {
-    ::ui::Rect rowCh = ::ui::makeStripRect(content, 28, 24);
-    ::ui::Rect rowR = ::ui::makeStripRect(content, 56, 24);
+    ::ui::Rect rowHum = ::ui::makeStripRect(content, 36, 40);
+    ::ui::Rect rowCh = ::ui::makeStripRect(content, 80, 40);
+    ::ui::Rect rowR = ::ui::makeStripRect(content, 124, 40);
     ::ui::Rect a2[2];
+    ::ui::layout2Up(rowHum, a2, gap);
+    s_seqDrHumM = {a2[0].x, a2[0].y, a2[0].w, a2[0].h};
+    s_seqDrHumP = {a2[1].x, a2[1].y, a2[1].w, a2[1].h};
     ::ui::layout2Up(rowCh, a2, gap);
     s_seqDrChM = {a2[0].x, a2[0].y, a2[0].w, a2[0].h};
     s_seqDrChP = {a2[1].x, a2[1].y, a2[1].w, a2[1].h};
@@ -54,7 +60,6 @@ static void layoutSeqDrawerRects(int screenW, int screenH) {
 }
 
 void drawSequencerTopDrawer(::ui::DisplayAdapter& d) {
-  (void)d;
   const int w = M5.Display.width();
   const int h = M5.Display.height();
   layoutSeqDrawerRects(w, h);
@@ -66,12 +71,18 @@ void drawSequencerTopDrawer(::ui::DisplayAdapter& d) {
   const uint8_t sub = g_topDrawerUi.subpage & 1U;
   const uint8_t lane = g_seqLane < 3 ? g_seqLane : 0;
 
-  const uint16_t tabFeelBg =
-      (sub == 0) ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted;
-  const uint16_t tabUtilBg =
-      (sub == 1) ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted;
-  drawRoundedButton(s_seqDrTabFeel, tabFeelBg, "Feel", 1);
-  drawRoundedButton(s_seqDrTabUtil, tabUtilBg, "Util", 1);
+  ::ui::TabChipSpec tabFeel{};
+  tabFeel.bounds = {s_seqDrTabFeel.x, s_seqDrTabFeel.y, s_seqDrTabFeel.w, s_seqDrTabFeel.h};
+  tabFeel.label = "Feel";
+  tabFeel.selected = (sub == 0);
+  tabFeel.textSize = 1;
+  ::ui::drawTabChip(d, tabFeel);
+  ::ui::TabChipSpec tabUtil{};
+  tabUtil.bounds = {s_seqDrTabUtil.x, s_seqDrTabUtil.y, s_seqDrTabUtil.w, s_seqDrTabUtil.h};
+  tabUtil.label = "Util";
+  tabUtil.selected = (sub == 1);
+  tabUtil.textSize = 1;
+  ::ui::drawTabChip(d, tabUtil);
 
   if (sub == 0) {
     drawRoundedButton(s_seqDrSwingM, g_uiPalette.panelMuted, "Swing -", 1);
@@ -86,6 +97,8 @@ void drawSequencerTopDrawer(::ui::DisplayAdapter& d) {
         Rect{s_seqDrLane.x, s_seqDrLane.y, s_seqDrLane.w, s_seqDrLane.h},
         g_uiPalette.seqLaneTab, tab, 1);
   } else {
+    drawRoundedButton(s_seqDrHumM, g_uiPalette.panelMuted, "Hum -", 1);
+    drawRoundedButton(s_seqDrHumP, g_uiPalette.panelMuted, "Hum +", 1);
     drawRoundedButton(s_seqDrChM, g_uiPalette.panelMuted, "CH -", 1);
     drawRoundedButton(s_seqDrChP, g_uiPalette.panelMuted, "CH +", 1);
     drawRoundedButton(s_seqDrRandM, g_uiPalette.panelMuted, "Rand -", 1);
@@ -94,7 +107,7 @@ void drawSequencerTopDrawer(::ui::DisplayAdapter& d) {
     M5.Display.setTextDatum(top_left);
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(g_uiPalette.hintText, g_uiPalette.bg);
-    M5.Display.drawString("BPM / clock: Transport", s_seqDrRandM.x, s_seqDrRandM.y + s_seqDrRandM.h + 6);
+    M5.Display.drawString("BPM / clock: Transport", s_seqDrRandM.x, s_seqDrRandM.y + s_seqDrRandM.h + 4);
   }
 }
 
@@ -172,7 +185,19 @@ bool sequencerProcessTopDrawerTouch(uint8_t touchCount, int w, int h) {
         g_seqLane = static_cast<uint8_t>((g_seqLane + 1U) % 3U);
       }
     } else {
-      if (pointInRect(hx, hy, s_seqDrChM)) {
+      if (pointInRect(hx, hy, s_seqDrHumM)) {
+        int v = static_cast<int>(g_settings.globalHumanizePct) - 5;
+        if (v < 0) v = 0;
+        g_settings.globalHumanizePct = static_cast<uint8_t>(v);
+        transportSetGlobalHumanize(g_settings.globalHumanizePct);
+        settingsSave(g_settings);
+      } else if (pointInRect(hx, hy, s_seqDrHumP)) {
+        int v = static_cast<int>(g_settings.globalHumanizePct) + 5;
+        if (v > 100) v = 100;
+        g_settings.globalHumanizePct = static_cast<uint8_t>(v);
+        transportSetGlobalHumanize(g_settings.globalHumanizePct);
+        settingsSave(g_settings);
+      } else if (pointInRect(hx, hy, s_seqDrChM)) {
         uint8_t ch = g_seqMidiCh[lane];
         ch = static_cast<uint8_t>((ch + 15U) % 16U + 1U);
         g_seqMidiCh[lane] = ch;

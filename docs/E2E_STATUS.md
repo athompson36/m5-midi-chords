@@ -1,6 +1,10 @@
 # E2E Status
 
-> **Note:** This file records a **point-in-time** manual/native run, not live CI. Update the date and sections when re-validating; see [`DOCS_INDEX.md`](DOCS_INDEX.md).
+> **Note:** This file records **point-in-time** build/test runs, not live CI. Update the date and sections when re-validating; see [`DOCS_INDEX.md`](DOCS_INDEX.md).
+
+**How to read older blocks:** Each dated section reflects the toolchain and hardware available that day. Conclusions (for example “native tests blocked”) are **environment-specific** and may be **superseded** by later entries on a machine with a working host compiler. Prefer the **latest** dated block for current expectations; use earlier blocks only as history.
+
+---
 
 Date: 2026-04-08
 
@@ -77,6 +81,8 @@ Date: 2026-04-09 (follow-up MIDI/transport pass)
 - **Flash to CoreS3:** PASS (`COM4`, esptool upload + RTS reset)
 - **Native unit tests:** BLOCKED on host toolchain
   - Fails before test execution because `gcc` / `g++` are missing from PATH on this Windows host.
+
+> **Superseded (environment):** The host-blocked result above applies only to that Windows setup. Later dated sections on hosts with `gcc`/`g++` show native tests passing.
 
 ## MIDI + transport findings from this pass
 

@@ -2,18 +2,23 @@
 
 ESP32 **Preferences** namespace: **`m5chord`**. All keys below are stored in flash unless noted.
 
-**Schema versioning:** Key **`schema`** (uint8): **`1`** = current layout. `prefsMigrateOnBoot()` in `setup()` writes `1` when missing or when upgrading from legacy (no key). Bump `kPrefsSchemaVersion` in `SettingsStore.cpp` when blobs change and add migration branches there.
+**Schema versioning:** Key **`schema`** (uint8) matches **`kPrefsSchemaVersion`** in `SettingsStore.cpp` (currently **`2`**). `prefsMigrateOnBoot()` upgrades older stores: below **2**, legacy **`inCh`** is copied into **`inUsb`**, **`inBle`**, and **`inDin`** once. Bump `kPrefsSchemaVersion` when blob layouts change and add migration branches there.
 
 | Key | Type | Purpose | Introduced |
 |-----|------|---------|--------------|
 | `schema` | u8 | Preferences schema version | v1 migration |
 | `xpose` | u8 | Transpose: stored as `transpose + 24` (−24…+24) | transpose feature |
 | `outCh` | u8 | MIDI out channel 1–16 | initial |
-| `inCh` | u8 | MIDI in 0=OMNI, 1–16 | initial |
+| `inCh` | u8 | Legacy MIDI in mirror (see below); 0=OMNI, 1–16 | initial |
+| `inUsb` | u8 | MIDI in USB 0=OMNI, 1–16 | per-port in |
+| `inBle` | u8 | MIDI in BLE 0=OMNI, 1–16 | per-port in |
+| `inDin` | u8 | MIDI in DIN 0=OMNI, 1–16 | per-port in |
 | `mTx` | u8 | MIDI transport send route 0–3 | AppSettings |
 | `mRx` | u8 | MIDI transport receive route 0–3 | AppSettings |
+| `mThM` | u8 | MIDI thru mask 0–7 (USB/BLE/DIN bits); canonical thru storage | AppSettings |
 | `mClk` | u8 | MIDI clock source 0–3 | AppSettings |
 | `bright` | u8 | Brightness % | initial |
+| `adim` | u8 | Display auto-dim idle: 0=off, 1=30s, 2=1m, 3=5m | display power saving |
 | `vel` | u8 | Output MIDI velocity | initial |
 | `arpMode` | u8 | Global arpeggiator mode index | initial |
 | `tonic` | u8 | Key index 0–11 | initial |
@@ -46,10 +51,12 @@ Some keys exist for **backward compatibility** with older firmware or mirrored f
 
 | Item | Role | Policy |
 |------|------|--------|
-| `inCh` | MIDI in channel (0=OMNI) | Still read on boot; migration may mirror into newer representations—see `SettingsStore.cpp` |
+| `inCh` | Legacy single MIDI-in channel | **Read** on boot as initial value for migration; **write** on each save as `midiInChannelUsb` so downgrades to firmware that only reads `inCh` still see a sensible default. Canonical per-port values are **`inUsb`**, **`inBle`**, **`inDin`**. |
+| `mThr` | Legacy MIDI thru on/off | **Read** only if **`mThM`** is absent (255): maps to `midiThruMask` all-on vs off. **Write** still mirrors a 0/1 flag for old readers. Canonical mask is **`mThM`** (3-bit combination). |
 | Legacy `seq` 16-byte read | Older single pattern | Wider blob preferred; store still accepts legacy read paths where implemented |
-| `mThr` / thru-related mirrored fields | MIDI thru routing | If present in code, treat as legacy mirror until a deliberate schema bump removes write-back |
 
-**Sunset rule:** keep **reading** legacy keys until users are unlikely to downgrade across a chosen version boundary; **stop writing** legacy-only keys once migration is proven; **remove** reads only after a documented version cutoff (bump `kPrefsSchemaVersion` and document in this file).
+**Retirement note (not yet executed):** stop writing **`mThr`** (and optionally stop mirroring **`inCh`**) after a chosen release once field verification is complete; keep **`mThM`** / **`inUsb`**… as the source of truth. Bump **`schema`** / **`kPrefsSchemaVersion`** when removing reads.
+
+**Sunset rule:** keep **reading** legacy keys until users are unlikely to downgrade across that boundary; **remove** legacy reads only after a documented version cutoff (document here).
 
 Do not rename NVS keys or change save semantics for UI refactors—drawers and new screens must bind to existing `AppSettings` / store fields.

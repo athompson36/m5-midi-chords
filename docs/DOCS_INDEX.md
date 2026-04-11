@@ -29,6 +29,14 @@ Use this map to find authoritative vs historical material.
 | [CURRENT_ROADMAP_AND_TODOS.md](CURRENT_ROADMAP_AND_TODOS.md) | Overlaps other roadmaps; prefer `TODO_IMPLEMENTATION.md` for backlog |
 | [RELEASE_NOTES_v0.1.0.md](RELEASE_NOTES_v0.1.0.md) | Point-in-time release notes |
 
+## Release and testing
+
+| Document | Purpose |
+|----------|---------|
+| [RELEASE_NOTES_v0.1.0.md](RELEASE_NOTES_v0.1.0.md) | Point-in-time release notes |
+| [E2E_STATUS.md](E2E_STATUS.md) | Dated build/test run log (not CI) |
+| [HARDWARE_E2E_CHECKLIST.md](HARDWARE_E2E_CHECKLIST.md) | Manual CoreS3 verification |
+
 ## Specs and setup
 
 | Document | Purpose |
@@ -39,3 +47,4 @@ Use this map to find authoritative vs historical material.
 | [DIN_MIDI_CHIP_SETUP.md](DIN_MIDI_CHIP_SETUP.md) | DIN wiring |
 | [UI_UX_POLISH_BACKLOG.md](UI_UX_POLISH_BACKLOG.md) | Polish ideas |
 | [GITHUB_ISSUES.md](GITHUB_ISSUES.md) | Issue tracking notes |
+| [M5_MIDI_Chords_UI_Layout_Grid_Spec.md](M5_MIDI_Chords_UI_Layout_Grid_Spec.md) | Layout grid reference |

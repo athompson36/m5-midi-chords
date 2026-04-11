@@ -19,6 +19,12 @@ struct AppSettings {
   uint8_t midiClockSource = 0;
   /// 0=ignore external MIDI clock, 1=follow selected source.
   uint8_t clkFollow = 1;
+  /// Internal clock + MIDI clock out rate: 0=x0.25 … 4=x4 (see `midiClockRateToRatio`).
+  uint8_t midiClockRateIndex = 2;
+  /// Mackie Control transport subset: 0=off, 1=USB, 2=BLE, 3=DIN (matches `midiSourceToRoute`).
+  uint8_t mackieControlPort = 0;
+  /// Ableton Link (stub — requires WiFi + ported Link library on ESP32).
+  uint8_t abletonLinkEnabled = 0;
   /// 0=quarter-note flash, 1=eighth-note flash for clock indicator.
   uint8_t clkFlashEdge = 0;
   /// Settings/UI gate for MIDI debug screen.
@@ -42,6 +48,10 @@ struct AppSettings {
   /// Lock manual window/gap edits while profiling: 0=off, 1=on.
   uint8_t suggestProfileLock = 0;
   uint8_t brightnessPercent = 80;
+  /// Backlight auto-dim after inactivity: 0=Off, 1=30s, 2=1m, 3=5m.
+  uint8_t displayAutoDimPreset = 0;
+  /// Idle duration before dim (ms); 0 means feature off.
+  uint32_t displayAutoDimIdleTimeoutMs() const;
   uint8_t outputVelocity = 100;
   /// Output velocity curve: 0=linear, 1=soft, 2=hard.
   uint8_t velocityCurve = 0;

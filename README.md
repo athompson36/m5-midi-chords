@@ -48,7 +48,7 @@ Section-based UI: **MIDI**, **Display**, **Seq/Arp**, **SD/Backup**, etc. Long-p
 | Examples | Notes |
 |----------|--------|
 | MIDI out / in / **transpose** (−24…+24) / transport routes / clock | Per `AppSettings`; transpose affects play MIDI |
-| Brightness, theme | Display section |
+| Brightness, theme, **auto-dim idle** (off / 30s / 1m / 5m) | Display section |
 | Velocity, arpeggiator mode, BPM, project name | Seq/Arp section |
 
 **Save** persists to NVS. **Backup / Restore** use SD when present (`docs` / `SdBackup`).
@@ -60,7 +60,8 @@ Section-based UI: **MIDI**, **Display**, **Seq/Arp**, **SD/Backup**, etc. Long-p
 ## Project Layout
 
 - `platformio.ini` — build and test environments
-- `src/main.cpp` — CoreS3 display + touch UI
+- `src/main.cpp` — CoreS3 app wiring and shared app state; per-screen logic in `src/screens/*Screen.cpp` (including `*.inc` fragments where used), plus `MidiDebugScreen.cpp` (MIDI debug), `ProjectUiScreens.cpp` (key picker, project-name editor, SD restore), `MidiIncomingHandlers.cpp` (incoming MIDI routing, chord suggest, play monitor strings), `MidiTransportOut.cpp` (transport clock/start/stop on the selected MIDI OUT route), `SeqArpRuntime.cpp` (step arpeggiator runtime, per-step MIDI emit, output velocity curve), `BacklightAutoDim.cpp` (brightness + idle dim), `PlayChromeUi.cpp` (play chrome: bezel strip, top status row, key/rounded helpers), `SettingsEntryBezel.cpp` (FWD long-press and two-finger BACK+FWD → settings, hold progress bar), `PlaySurfaceLayout.cpp` (3×3 play grid geometry), `SequencerLayout.cpp` (sequencer tabs/grid/slider layout + hit tests), `SequencerDraw.cpp` (sequencer surface paint, chord drop + step-edit popups, playhead delta redraw), and `SequencerTouch.cpp` (sequencer touch handling: grid, tools, chord picker, step-edit popup, shift focus); shared declarations in `src/m5chords_app/M5ChordsAppShared.h`
+- `src/ui/` — shared layout, drawers, and glossy draw helpers (`UiLayout`, `UiDrawers`, `UiGloss`)
 - `src/ChordModel.h` / `.cpp` — key-aware chord generation, roles, surprise pool
 - `src/AppSettings.h` / `.cpp` — settings data and cycling logic
 - `src/SettingsStore.h` / `.cpp` — NVS persistence (`m5chord` namespace; see `docs/PERSISTENCE_KEYS.md`)

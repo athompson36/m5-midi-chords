@@ -43,6 +43,7 @@ void settingsLoad(AppSettings& s) {
   s.midiInChannelBle = p.getUChar("inBle", legacyIn);
   s.midiInChannelDin = p.getUChar("inDin", legacyIn);
   s.brightnessPercent = p.getUChar("bright", s.brightnessPercent);
+  s.displayAutoDimPreset = p.getUChar("adim", s.displayAutoDimPreset);
   s.outputVelocity = p.getUChar("vel", s.outputVelocity);
   s.velocityCurve = p.getUChar("vCur", s.velocityCurve);
   s.globalSwingPct = p.getUChar("gSw", s.globalSwingPct);
@@ -68,6 +69,9 @@ void settingsLoad(AppSettings& s) {
   }
   s.midiClockSource = p.getUChar("mClk", s.midiClockSource);
   s.clkFollow = p.getUChar("clkF", s.clkFollow);
+  s.midiClockRateIndex = p.getUChar("clkRt", s.midiClockRateIndex);
+  s.mackieControlPort = p.getUChar("mMc", s.mackieControlPort);
+  s.abletonLinkEnabled = p.getUChar("aLink", s.abletonLinkEnabled);
   s.clkFlashEdge = p.getUChar("clkFe", s.clkFlashEdge);
   s.midiDebugEnabled = p.getUChar("mDbg", s.midiDebugEnabled);
   s.playInMonitor = p.getUChar("pInMon", s.playInMonitor);
@@ -98,6 +102,9 @@ void settingsSave(const AppSettings& s) {
   p.putUChar("mThr", s.midiThruMask ? 1 : 0);  // legacy compatibility
   p.putUChar("mClk", s.midiClockSource);
   p.putUChar("clkF", s.clkFollow);
+  p.putUChar("clkRt", s.midiClockRateIndex);
+  p.putUChar("mMc", s.mackieControlPort);
+  p.putUChar("aLink", s.abletonLinkEnabled);
   p.putUChar("clkFe", s.clkFlashEdge);
   p.putUChar("mDbg", s.midiDebugEnabled);
   p.putUChar("pInMon", s.playInMonitor);
@@ -110,6 +117,7 @@ void settingsSave(const AppSettings& s) {
   p.putUChar("sPrf", s.suggestProfile);
   p.putUChar("sLck", s.suggestProfileLock);
   p.putUChar("bright", s.brightnessPercent);
+  p.putUChar("adim", s.displayAutoDimPreset);
   p.putUChar("vel", s.outputVelocity);
   p.putUChar("vCur", s.velocityCurve);
   p.putUChar("gSw", s.globalSwingPct);

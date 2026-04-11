@@ -38,6 +38,19 @@ const char* midiClockSourceLabel(uint8_t v) {
   }
 }
 
+uint32_t AppSettings::displayAutoDimIdleTimeoutMs() const {
+  switch (displayAutoDimPreset) {
+    case 1:
+      return 30000;
+    case 2:
+      return 60000;
+    case 3:
+      return 300000;
+    default:
+      return 0;
+  }
+}
+
 void AppSettings::normalize() {
   if (midiOutChannel < 1) midiOutChannel = 1;
   if (midiOutChannel > 16) midiOutChannel = 16;
@@ -52,6 +65,9 @@ void AppSettings::normalize() {
   if (midiThruMask > 7) midiThruMask = 0;
   if (midiClockSource >= kMidiRouteCount) midiClockSource = 0;
   if (clkFollow > 1) clkFollow = 1;
+  if (midiClockRateIndex > 4) midiClockRateIndex = 2;
+  if (mackieControlPort > 3) mackieControlPort = 0;
+  if (abletonLinkEnabled > 1) abletonLinkEnabled = 0;
   if (clkFlashEdge > 1) clkFlashEdge = 0;
   if (midiDebugEnabled > 1) midiDebugEnabled = 1;
   if (playInMonitor > 1) playInMonitor = 0;
@@ -65,6 +81,7 @@ void AppSettings::normalize() {
   if (suggestProfileLock > 1) suggestProfileLock = 0;
   if (brightnessPercent < 10) brightnessPercent = 10;
   if (brightnessPercent > 100) brightnessPercent = 100;
+  if (displayAutoDimPreset > 3) displayAutoDimPreset = 0;
   if (outputVelocity < 40) outputVelocity = 40;
   if (outputVelocity > 127) outputVelocity = 127;
   if (velocityCurve > 2) velocityCurve = 0;

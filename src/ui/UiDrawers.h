@@ -21,7 +21,8 @@ void topDrawerOpenForScreen(TopDrawerState& state, HostScreen s);
 void topDrawerClose(TopDrawerState& state);
 bool topDrawerIsOpen(const TopDrawerState& state);
 
-/// Start tracking a downward swipe from the top edge. Call on touch-down.
+/// Track a downward swipe from the top edge. Call each frame while the primary touch is down
+/// (first contact must begin within the top-edge band).
 void topDrawerOnTouchDown(TopDrawerState& state, HostScreen currentScreen, bool transportDrawerOpen,
                           bool modalOpen, int16_t touchY);
 

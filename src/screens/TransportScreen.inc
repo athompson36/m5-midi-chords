@@ -118,13 +118,13 @@ static void transportDropScrollInit(int w, int h) {
   s_transportDropScroll = scroll;
 }
 
-static void transportDropDismiss() {
+void transportDropDismiss() {
   s_transportDropKind = -1;
   s_transportDropDragLastY = -1;
   s_transportDropFingerScrollCount = 0;
 }
 
-static void transportDropOpen(int8_t kind, int w, int h) {
+void transportDropOpen(int8_t kind, int w, int h) {
   if (kind < kTransportDropMidiOut || kind > kTransportDropStrum) {
     transportDropDismiss();
     return;
@@ -136,40 +136,39 @@ static void transportDropOpen(int8_t kind, int w, int h) {
 }
 
 static void layoutTransportRects(int w, int h) {
-  constexpr int margin = 8;
+  const int margin = static_cast<int>(::ui::LayoutMetrics::OuterMargin);
   constexpr int row1y = 22;
-  constexpr int btnH = 38;
-  constexpr int gap = 8;
+  // Former row2 held M/C toggles (moved to Settings → MIDI). Split that vertical space between
+  // Play/Stop/Rec and the four MIDI parameter buttons.
+  constexpr int reclaimedHalf = 17;
+  constexpr int btnH = 38 + reclaimedHalf;
+  const int gap = static_cast<int>(::ui::LayoutMetrics::ControlGap);
   const int totalW = w - 2 * margin;
   const int third = (totalW - 2 * gap) / 3;
   g_trPlay = {margin, row1y, third, btnH};
   g_trStop = {margin + third + gap, row1y, third, btnH};
   g_trRec = {margin + 2 * (third + gap), row1y, third, btnH};
 
-  constexpr int subGap = 4;
-  const int row2y = row1y + btnH + gap;
-  const int smallH = 26;
-  const int miniW = (third - subGap) / 2;
-  g_trMetro = {margin, row2y, miniW, smallH};
-  g_trCntIn = {margin + miniW + subGap, row2y, miniW, smallH};
+  g_trMetro = {0, 0, 0, 0};
+  g_trCntIn = {0, 0, 0, 0};
 
-  const int row3y = row2y + smallH + gap;
-  constexpr int midiRowH = 34;
+  const int midiRowY = row1y + btnH + gap;
+  constexpr int midiRowH = 34 + reclaimedHalf;
   const int ddw = (totalW - 3 * gap) / 4;
-  g_trMidiOutBtn = {margin, row3y, ddw, midiRowH};
-  g_trMidiInBtn = {margin + ddw + gap, row3y, ddw, midiRowH};
-  g_trSyncBtn = {margin + 2 * (ddw + gap), row3y, ddw, midiRowH};
-  g_trStrumBtn = {margin + 3 * (ddw + gap), row3y, ddw, midiRowH};
+  g_trMidiOutBtn = {margin, midiRowY, ddw, midiRowH};
+  g_trMidiInBtn = {margin + ddw + gap, midiRowY, ddw, midiRowH};
+  g_trSyncBtn = {margin + 2 * (ddw + gap), midiRowY, ddw, midiRowH};
+  g_trStrumBtn = {margin + 3 * (ddw + gap), midiRowY, ddw, midiRowH};
 
-  const int infoY = row3y + midiRowH + 6;
-  const int infoH = h - kBezelBarH - infoY - 4;
+  const int infoY = midiRowY + midiRowH + static_cast<int>(::ui::LayoutMetrics::StripGap);
+  const int infoH = h - kBezelBarH - infoY - static_cast<int>(::ui::LayoutMetrics::OuterMargin);
   const int halfCol = (totalW - gap) / 2;
   g_trBpmTap = {margin, infoY, halfCol, infoH};
   g_trStepDisplay = {margin + halfCol + gap, infoY, halfCol, infoH};
 }
 
 /// Repaint only the step readout (avoids full Transport redraw every clock tick).
-static void transportRedrawStepDisplayOnly() {
+void transportRedrawStepDisplayOnly() {
   const int w = M5.Display.width();
   const int h = M5.Display.height();
   layoutTransportRects(w, h);
@@ -269,15 +268,6 @@ void drawTransportSurface(bool fullClear) {
   snprintf(rlab, sizeof(rlab), "Rec %s", transportRecordArmed() ? "ARM" : "");
   drawRoundedButton(g_trRec, transportRecordArmed() ? g_uiPalette.danger : g_uiPalette.panelMuted, rlab,
                     2);
-
-  char ml[20];
-  char cl[24];
-  snprintf(ml, sizeof(ml), "M %s", g_prefsMetronome ? "on" : "off");
-  snprintf(cl, sizeof(cl), "C %s", g_prefsCountIn ? "on" : "off");
-  drawRoundedButton(g_trMetro, g_prefsMetronome ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted, ml,
-                    1);
-  drawRoundedButton(g_trCntIn, g_prefsCountIn ? g_uiPalette.seqLaneTab : g_uiPalette.panelMuted, cl,
-                    1);
 
   char mo[20];
   char mi[20];
@@ -600,11 +590,21 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
         s_transportTouchStartY = d.y;
       }
       if (s_transportDropKind < 0 && pointInRect(s_transportTouchStartX, s_transportTouchStartY, g_trBpmTap)) {
+        clearHoldProgressStrip(HoldProgressOwner::TransportPsr);
         const uint32_t elapsed = millis() - s_transportTouchStartMs;
         drawHoldProgressStrip(HoldProgressOwner::TransportBpm, elapsed, transportBpmLongMs(),
                               "Hold BPM: tap-tempo");
+      } else if (s_transportDropKind < 0 &&
+                 (pointInRect(s_transportTouchStartX, s_transportTouchStartY, g_trPlay) ||
+                  pointInRect(s_transportTouchStartX, s_transportTouchStartY, g_trStop) ||
+                  pointInRect(s_transportTouchStartX, s_transportTouchStartY, g_trRec))) {
+        clearHoldProgressStrip(HoldProgressOwner::TransportBpm);
+        const uint32_t elapsed = millis() - s_transportTouchStartMs;
+        drawHoldProgressStrip(HoldProgressOwner::TransportPsr, elapsed, transportBpmLongMs(),
+                              "Hold: transport + close");
       } else {
         clearHoldProgressStrip(HoldProgressOwner::TransportBpm);
+        clearHoldProgressStrip(HoldProgressOwner::TransportPsr);
       }
     }
     wasTouchActive = true;
@@ -614,6 +614,7 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
   if (!wasTouchActive) return;
   wasTouchActive = false;
   clearHoldProgressStrip(HoldProgressOwner::TransportBpm);
+  clearHoldProgressStrip(HoldProgressOwner::TransportPsr);
   s_transportTouchDown = false;
   s_transportDropDragLastY = -1;
   const int fingerScrollsThisGesture = s_transportDropFingerScrollCount;
@@ -668,6 +669,18 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
     return;
   }
 
+  // Swipe down on the transport sheet (non-bezel) dismisses the drawer — mirrors swipe-up from Select.
+  {
+    constexpr int kSwipeDownClosePx = 40;
+    const bool startOnBezel = pointInRect(hx, hy, g_bezelBack) || pointInRect(hx, hy, g_bezelFwd) ||
+                              pointInRect(hx, hy, g_bezelSelect);
+    const int deltaY = relY - s_transportTouchStartY;
+    if (!startOnBezel && deltaY >= kSwipeDownClosePx) {
+      closeTransportDrawer();
+      return;
+    }
+  }
+
   if (pointInRect(hx, hy, g_bezelBack) || pointInRect(hx, hy, g_bezelFwd) ||
       pointInRect(hx, hy, g_bezelSelect)) {
     closeTransportDrawer();
@@ -711,43 +724,65 @@ void processTransportTouch(uint8_t touchCount, int w, int h) {
   }
 
   if (pointInRect(hx, hy, g_trPlay)) {
+    const bool closeAfter =
+        dur >= transportBpmLongMs() && !touchMovedPastSuppressThreshold(hx, hy, relX, relY);
     if (transportIsPaused()) {
       transportTogglePlayPause(now);
-    } else if (transportIsPlaying() || transportIsCountIn()) {
-      transportTogglePlayPause(now);
-    } else {
-      if (transportRecordArmed()) {
-        g_screen = Screen::Play;
-        transportBeginLiveRecording(now);
-        drawPlaySurface();
+      if (closeAfter) {
+        closeTransportDrawer();
       } else {
-        transportStartMetronomeOnly(now);
         drawTransportSurface(false);
       }
+      return;
+    }
+    if (transportIsPlaying() || transportIsCountIn()) {
+      transportTogglePlayPause(now);
+      if (closeAfter) {
+        closeTransportDrawer();
+      } else {
+        drawTransportSurface(false);
+      }
+      return;
+    }
+    if (transportRecordArmed()) {
+      transportBeginLiveRecording(now);
+      if (closeAfter) {
+        closeTransportDrawer();
+      } else {
+        g_screen = Screen::Play;
+        drawPlaySurface();
+      }
+      return;
+    }
+    transportStartMetronomeOnly(now);
+    if (closeAfter) {
+      closeTransportDrawer();
+    } else {
+      drawTransportSurface(false);
     }
     return;
   }
   if (pointInRect(hx, hy, g_trStop)) {
+    const bool closeAfter =
+        dur >= transportBpmLongMs() && !touchMovedPastSuppressThreshold(hx, hy, relX, relY);
     panicForTrigger(PanicTrigger::TransportStop);
     transportStop();
-    drawTransportSurface(false);
+    if (closeAfter) {
+      closeTransportDrawer();
+    } else {
+      drawTransportSurface(false);
+    }
     return;
   }
   if (pointInRect(hx, hy, g_trRec)) {
+    const bool closeAfter =
+        dur >= transportBpmLongMs() && !touchMovedPastSuppressThreshold(hx, hy, relX, relY);
     transportSetRecordArmed(!transportRecordArmed());
-    drawTransportSurface(false);
-    return;
-  }
-  if (pointInRect(hx, hy, g_trMetro)) {
-    g_prefsMetronome = !g_prefsMetronome;
-    transportPrefsSave();
-    drawTransportSurface(false);
-    return;
-  }
-  if (pointInRect(hx, hy, g_trCntIn)) {
-    g_prefsCountIn = !g_prefsCountIn;
-    transportPrefsSave();
-    drawTransportSurface(false);
+    if (closeAfter) {
+      closeTransportDrawer();
+    } else {
+      drawTransportSurface(false);
+    }
     return;
   }
   drawTransportSurface(false);

@@ -3,7 +3,8 @@
 namespace ui {
 
 namespace {
-constexpr int16_t kTopEdgeBand = 28;
+/// Vertical band from the top of the screen where a downward swipe may *begin* (see LayoutMetrics::StatusH).
+constexpr int16_t kTopEdgeBand = 48;
 constexpr int16_t kSwipeOpenThreshold = 36;
 }
 
@@ -48,6 +49,12 @@ void topDrawerOnTouchDown(TopDrawerState& state, HostScreen currentScreen, bool 
   if (transportDrawerOpen || modalOpen) return;
   if (!topDrawerAllowedForScreen(currentScreen)) return;
   if (topDrawerIsOpen(state)) return;
+  // `topDrawerOnTouchDown` is called every frame while the finger is down. Once we have armed a
+  // top-edge swipe, keep tracking even if the finger moves below kTopEdgeBand; otherwise the
+  // gesture is cancelled immediately on the first move downward.
+  if (state.swipeTracking) {
+    return;
+  }
   if (touchY <= kTopEdgeBand) {
     state.swipeTracking = true;
     state.swipeStartY = touchY;
